@@ -1,6 +1,6 @@
-#摘要转综述[pos=1]
+#Abstract To Literature Review[pos=1]
 
-下面是一篇论文的摘要：
+Below is the abstract of a paper:
 
 ```js
 const ztoolkit = Zotero.ZoteroGPT.data.ztoolkit
@@ -13,8 +13,8 @@ getSelection()
 ```
 
 
-现在我想引用它写一篇文献综述，请你帮我写几句话总结这篇论文的工作，作者没有告诉你，你可以用XX代替。我要中文的。要求50字左右。
+I want to cite it in a literature review. Please write a few sentences summarizing the paper's contribution. If the authors did not provide a detail, you may use `XX` as a placeholder. Keep it concise, around 50 words.
 
 ---
 
-使用场景: 选中PDF的摘要的时候
+Usage: when an abstract is selected in a PDF

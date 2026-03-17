@@ -6,7 +6,7 @@ import Meet from "./api";
 import ZoteroToolkit from "zotero-plugin-toolkit";
 
 /**
- * 读取剪贴板
+ * Read the clipboard
  * @returns string
  */
 export function getClipboardText(): string {
@@ -15,7 +15,7 @@ export function getClipboardText(): string {
   // @ts-ignore
   const transferable = window.Cc['@mozilla.org/widget/transferable;1'].createInstance(Ci.nsITransferable);
   if (!transferable) {
-    window.alert('剪贴板服务错误：无法创建可传输的实例');
+    window.alert("Clipboard service error: unable to create a transferable instance.");
   }
   transferable.addDataFlavor('text/unicode');
   clipboardService.getData(transferable, clipboardService.kGlobalClipboard);
@@ -24,7 +24,7 @@ export function getClipboardText(): string {
   try {
     transferable.getTransferData('text/unicode', clipboardData, clipboardLength);
   } catch (err: any) {
-    window.console.error('剪贴板服务获取失败：', err.message);
+    window.console.error("Clipboard service read failed:", err.message);
   }
   // @ts-ignore
   clipboardData = clipboardData.value.QueryInterface(Ci.nsISupportsString);
@@ -33,8 +33,8 @@ export function getClipboardText(): string {
 }
 
 /**
- * 将选中条目处理成全文
- * 注意：这里目前是不储存得到向量的，因为条目一直在更新
+ * Convert selected items into full-text documents
+ * Note: vectors are not cached here because items can keep changing
  * @param key 
  * @returns 
  */
@@ -81,7 +81,7 @@ function mergeSameLine(items: PDFItem[]) {
   for (j = 1; j < items.length; j++) {
     let line = toLine(items[j])
     let lastLine = lines.slice(-1)[0]
-    // 考虑上标下标
+    // Account for superscript and subscript positioning
     if (
       line.y == lastLine.y ||
       (line.y >= lastLine.y && line.y < lastLine.y + lastLine.height) ||
@@ -90,15 +90,15 @@ function mergeSameLine(items: PDFItem[]) {
       lastLine.text += (" " + line.text)
       lastLine.width += line.width
       lastLine.url = lastLine.url || line.url
-      // 记录所有高度
+      // Record all heights
       lastLine._height.push(line.height)
     } else {
-      // 处理已完成的行，用众数赋值高度
+      // Finalize the completed line and assign the modal height
       let hh = lastLine._height
       // lastLine.height = hh.sort((a, b) => a - b)[parseInt(String(hh.length / 2))]
-      // 用最大值
+      // Use the maximum value
       // lastLine.height = hh.sort((a, b) => b-a)[0]
-      // 众数
+      // Modal value
       const num: any = {}
       for (let i = 0; i < hh.length; i++) {
         num[String(hh[i])] ??= 0
@@ -109,7 +109,7 @@ function mergeSameLine(items: PDFItem[]) {
           return num[h2] - num[h1]
         })[0]
       )
-      // 新的一行
+      // Start a new line
       lines.push(line)
     }
   }
@@ -124,7 +124,7 @@ declare type Box = {
 }
 
 /**
- * 判断A和B两个矩形是否几何相交
+ * Check whether rectangles A and B intersect geometrically
  * @param A 
  * @param B 
  * @returns 
@@ -143,7 +143,7 @@ function isIntersect(A: Box, B: Box): boolean {
 }
 
 /**
- * 判断两行是否是跨页同位置行
+ * Check whether two lines occupy the same relative position across pages
  * @param lineA 
  * @param lineB 
  * @param maxWidth 
@@ -167,9 +167,9 @@ function isIntersectLines(lineA: any, lineB: any, maxWidth: number, maxHeight: n
 }
 
 /**
- * 读取PDF全文，因为读取速度一般较快，所以不储存
- * 当然排除学位论文，书籍等
- * 此函数遇到reference关键词会停止读取，因为参考文献太影响最后计算相似度了
+ * Read the full PDF text. This is usually fast enough that no cache is needed.
+ * Large documents such as theses or books are still possible.
+ * Stop when a references heading is found, because references distort similarity results.
  */
 async function pdf2documents(itemkey: string) {
   const reader = await ztoolkit.Reader.getReader() as _ZoteroTypes.ReaderInstance
@@ -183,7 +183,7 @@ async function pdf2documents(itemkey: string) {
   //   .show()
   const popupWin = Meet.Global.popupWin.createLine({ text: `[1/${totalPageNum}] Reading PDF`, progress: 1, type: "success" })
     .show()
-  // 读取所有页面lines
+  // Read lines from all pages
   const pageLines: any = {}
   let docs: Document[] = []
   for (let pageNum = 0; pageNum < totalPageNum; pageNum++) {
@@ -197,7 +197,7 @@ async function pdf2documents(itemkey: string) {
     }
     pageLines[pageNum] = lines
     popupWin.changeLine({ idx: popupWin.lines.length - 1, text: `[${pageNum + 1}/${totalPageNum}] Reading PDF`, progress: (pageNum + 1) / totalPageNum * 100})
-    // 防止误杀
+    // Avoid cutting too aggressively
     if (index != -1 && pageNum / totalPageNum >= .9) {
       break
     }
@@ -210,27 +210,27 @@ async function pdf2documents(itemkey: string) {
     const maxWidth = pdfPage._pageInfo.view[2];
     const maxHeight = pdfPage._pageInfo.view[3];
     let lines = [...pageLines[pageNum]]
-    // 去除页眉页脚信息
+    // Remove repeated header and footer content
     let removeLines = new Set()
     let removeNumber = (text: string) => {
-      // 英文页码
+      // Roman-style page markers
       if (/^[A-Z]{1,3}$/.test(text)) {
         text = ""
       }
-      // 正常页码1,2,3
+      // Standard numeric page numbers
       text = text.replace(/\x20+/g, "").replace(/\d+/g, "")
       return text
     }
-    // 是否为重复
+    // Check whether a line is repeated
     let isRepeat = (line: PDFLine, _line: PDFLine) => {
       let text = removeNumber(line.text)
       let _text = removeNumber(_line.text)
       return text == _text && isIntersectLines(line, _line, maxWidth, maxHeight)
     }
-    // 存在于数据起始结尾的无效行
+    // Remove invalid repeated lines at the beginning or end
     for (let i of Object.keys(pageLines)) {
       if (Number(i) == pageNum) { continue }
-      // 两个不同页，开始对比
+      // Compare two different pages
       let _lines = pageLines[i]
       let directions = {
         forward: {
@@ -250,7 +250,7 @@ async function pdf2documents(itemkey: string) {
           let line = lines.slice(index)[0]
           let _line = _lines.slice(index)[0]
           if (isRepeat(line, _line)) {
-            // 认为是相同的
+            // Treat them as identical
             line[direction] = true
             removeLines.add(line)
           } else {
@@ -258,8 +258,8 @@ async function pdf2documents(itemkey: string) {
           }
         })
       }
-      // 内部的
-      // 设定一个百分百正文区域防止误杀
+      // Internal repeated lines
+      // Keep a safe central content area to avoid false positives
       const content = { x: 0.2 * maxWidth, width: .6 * maxWidth, y: .2 * maxHeight, height: .6 * maxHeight }
       for (let j = 0; j < lines.length; j++) {
         let line = lines[j]
@@ -275,8 +275,8 @@ async function pdf2documents(itemkey: string) {
       }
     }
     lines = lines.filter((e: any) => !(e.forward || e.backward || (e.repeat && e.repeat > 3)));
-    // 段落聚类
-    // 原则：字体从大到小，合并；从小变大，断开
+    // Cluster lines into paragraphs
+    // Rule: merge when font size decreases, split when it increases
     let abs = (x: number) => x > 0 ? x : -x
     const paragraphs = [[lines[0]]]
     for (let i = 1; i < lines.length; i++) {
@@ -284,34 +284,34 @@ async function pdf2documents(itemkey: string) {
       let currentLine = lines[i]
       let nextLine = lines[i + 1]
       const isNewParagraph =
-        // 达到一定行数阈值
+        // Require a minimum paragraph length threshold
         paragraphs.slice(-1)[0].length >= 5 && 
         (
-          // 当前行存在一个非常大的字体的文字
+          // Current line contains much larger text
           currentLine._height.some((h2: number) => lastLine._height.every((h1: number) => h2 > h1)) ||
-          // 是摘要自动为一段
+          // Abstract starts a new paragraph automatically
           /abstract/i.test(currentLine.text) ||
-          // 与上一行间距过大
+          // Gap from the previous line is too large
           abs(lastLine.y - currentLine.y) > currentLine.height * 2 ||
-          // 首行缩进分段
+          // First-line indentation indicates a new paragraph
           (currentLine.x > lastLine.x && nextLine && nextLine.x < currentLine.x)
         )
-      // 开新段落
+      // Start a new paragraph
       if (isNewParagraph) {
         paragraphs.push([currentLine])
       }
-      // 否则纳入当前段落
+      // Otherwise append to the current paragraph
       else {
         paragraphs.slice(-1)[0].push(currentLine)
       }
     }
     ztoolkit.log(paragraphs)
-    // 段落合并
+    // Merge paragraph content
     for (let i = 0; i < paragraphs.length; i++) {
       let box: { page: number, left: number; top: number; right: number; bottom: number }
       /**
-       * 所有line是属于一个段落的
-       * 合并同时计算它的边界
+       * All lines here belong to the same paragraph.
+       * Merge them and compute the paragraph bounds at the same time.
        */
       let _pageText = ""
       let line, nextLine
@@ -319,7 +319,7 @@ async function pdf2documents(itemkey: string) {
         line = paragraphs[i][j]
         if (!line) { continue }
         nextLine = paragraphs[i]?.[j + 1]
-        // 更新边界
+        // Update bounds
         box ??= { page: pageNum, left: line.x, right: line.x + line.width, top: line.y + line.height, bottom: line.y }
         if (line.x < box.left) {
           box.left = line.x
@@ -363,8 +363,8 @@ async function pdf2documents(itemkey: string) {
 }
 
 /**
- * 如果当前在主面板，根据选中条目生成文本，查找相关 - 用于搜索条目
- * 如果在PDF阅读界面，阅读PDF原文，查找返回相应段落 - 用于总结问题
+ * In the main pane, build text from selected items and find related content.
+ * In the PDF reader, read the PDF and return related paragraphs.
  * @param queryText 
  * @returns 
  */
@@ -374,8 +374,8 @@ export async function getRelatedText(queryText: string) {
   let docs: Document[], key: string
   switch (Zotero_Tabs.selectedIndex) {
     case 0:
-      // 只有再次选中相同条目，且条目没有更新变化，才会复用，不然会一直重复建立索引
-      // TODO - 优化
+      // Reuse only when the same items are selected and unchanged.
+      // TODO: optimize
       key = MD5(ZoteroPane.getSelectedItems().map(i => i.key).join("")).toString()
       docs = cache[key] || await selectedItems2documents(key)
       break;
@@ -395,7 +395,7 @@ export async function getRelatedText(queryText: string) {
 }
 
 /**
- * 获取选中条目某个字段
+ * Get a field from the selected item
  * @param fieldName 
  * @returns 
  */
@@ -404,7 +404,7 @@ export function getItemField(fieldName: any) {
 }
 
 /**
- * 获取PDF页面文字
+ * Get selected text from the PDF view
  * @returns 
  */
 export function getPDFSelection() {

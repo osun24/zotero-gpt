@@ -4,36 +4,24 @@ import Utils from "./utils";
 import { Document } from "langchain/document";
 import { help, fontFamily, defaultTags, parseTag } from "./base"
 const markdown = require("markdown-it")({
-  breaks: true, // 将行结束符\n转换为 <br> 标签
-  xhtmlOut: true, // 使用 /> 关闭标签，而不是 >
+  breaks: true, // Convert line breaks into <br> tags
+  xhtmlOut: true, // Use /> closing style instead of >
   typographer: true,
-  html: true,
+  html: false,
 });
 const mathjax3 = require('markdown-it-mathjax3');
 markdown.use(mathjax3);
 
 export default class Views {
   private id = "zotero-GPT-container";
-  /**
-   * OpenAI接口历史消息记录，需要暴露给GPT响应函数
-   */
+  /** Chat history passed to the GPT response functions. */
   public messages: { role: "user" | "assistant"; content: string }[] = [];
-  /**
-   * 用于储存历史执行的输入，配合方向上下键来快速回退
-   */
+  /** Store prior inputs so Up/Down can navigate history. */
   private _history: { input: string; output: string }[] = []
-  /**
-   * 用于储存上一个执行的标签，配合 Ctrl + Enter 快速再次执行
-   */
+  /** Store the last executed tag so Ctrl+Enter can rerun it. */
   private _tag: Tag | undefined;
-  /**
-   * 记录当前GPT输出流setInterval的id，防止终止后仍有输出，需要暴露给GPT响应函数
-   */
+  /** Track active streaming intervals so they can be stopped safely. */
   public _ids: {type: "follow"| "output", id: number}[] = []
-  /**
-   * 是否在笔记环境下
-   */
-  public isInNote: boolean = true
   public container!: HTMLDivElement;
   private inputContainer!: HTMLDivElement;
   private outputContainer!: HTMLDivElement;
@@ -138,11 +126,7 @@ export default class Views {
     }, document.documentElement)
   }
 
-  /**
-   * 设置GPT回答区域文字
-   * @param text 
-   * @param isDone 
-   */
+  /** Set the text shown in the GPT output area. */
   public setText(text: string, isDone: boolean = false, scrollToNewLine: boolean = true, isRecord: boolean = true,) {
     this.outputContainer.style.display = ""
     const outputDiv = this.outputContainer.querySelector(".markdown-body")! as HTMLDivElement
@@ -154,18 +138,11 @@ export default class Views {
       }
     }
     ready()
-    /**
-     * 根据差异渲染，只为保全光标闪烁
-     */
+    /** Diff-based rendering preserves the cursor blink state. */
     let md2html = () => {
       let result = markdown.render(text)
         // .replace(/<mjx-assistive-mml[^>]*>.*?<\/mjx-assistive-mml>/g, "")
-      /**
-       * 监测差异，替换节点或文字
-       * @param oldNode 
-       * @param newNode 
-       * @returns 
-       */
+      /** Compare nodes and replace changed nodes or text only. */
       let diffRender = (oldNode: any, newNode: any) => {
         if (newNode.nodeName == "svg") {
           oldNode.parentNode.replaceChild(newNode, oldNode)
@@ -182,7 +159,7 @@ export default class Views {
             return
           }
         }
-        // 老的比新的多要去除
+        // Remove extra old nodes if the new tree is shorter
         [...oldNode.childNodes].slice(newNode.childNodes.length).forEach((e: any)=>e.remove())
         for (let i = 0; i < newNode.childNodes.length; i++) {
           if (i < oldNode.childNodes.length) {
@@ -202,7 +179,7 @@ export default class Views {
           }
         }
       }
-      // 纯文本本身不需要MD渲染，防止样式不一致出现变形
+      // Plain text does not need markdown rendering first
       let _outputDiv = outputDiv.cloneNode(true) as HTMLDivElement
       try {
         _outputDiv.innerHTML = result
@@ -220,26 +197,85 @@ export default class Views {
     // @ts-ignore
     scrollToNewLine && this.outputContainer.scrollBy(0, this.outputContainer.scrollTopMax)
     if (isDone) {
-      // 任何实时预览的错误到最后，应该因为下面这句消失
+      // Final render should replace any transient streaming artifacts
       outputDiv.innerHTML = markdown.render(text)
       if (isRecord) {
         this._history.push({ input: Meet.Global.input, output: text })
       }
       outputDiv.classList.remove("streaming")
-      if (this.isInNote) {
-        this.hide()
-        // 下面是完成回答后写入 Better Notes 主笔记的两种方案
-        Meet.BetterNotes.insertEditorText(outputDiv.innerHTML)
-        // window.setTimeout(async () => {
-        //   Meet.BetterNotes.insertEditorText(await Zotero.BetterNotes.api.convert.md2html(text))
-        // })
-      }
     }
   }
 
+  private showError(title: string, message: string) {
+    this.dotsContainer?.classList.remove("loading")
+    this.setText(`## ${title}\n\n${message}`, true, false)
+    new ztoolkit.ProgressWindow(title, { closeOtherProgressWindows: true })
+      .createLine({ text: message, type: "default" })
+      .show()
+  }
+
+  private parseTrigger(trigger: string) {
+    if (!(trigger.startsWith("/") && trigger.lastIndexOf("/") > 0)) {
+      return null
+    }
+    const lastSlash = trigger.lastIndexOf("/")
+    const pattern = trigger.slice(1, lastSlash)
+    const flags = trigger.slice(lastSlash + 1)
+    if (!/^[dgimsuy]*$/.test(flags)) {
+      return null
+    }
+    try {
+      return new RegExp(pattern, flags)
+    } catch {
+      return null
+    }
+  }
+
+  private async resolvePlaceholder(name: string) {
+    switch (name) {
+      case "input":
+        return Meet.Global.input || ""
+      case "pdf_selection":
+        return Meet.Zotero.getPDFSelection()
+      case "clipboard":
+        return Meet.Zotero.getClipboardText()
+      case "selected_item_json": {
+        const item = ZoteroPane.getSelectedItems()[0]
+        return item ? JSON.stringify(item.toJSON()) : ""
+      }
+      case "pdf_annotations":
+        return await Meet.Zotero.getPDFAnnotations(false)
+      case "selected_pdf_annotations":
+        return await Meet.Zotero.getPDFAnnotations(true)
+      case "related_text":
+        return await Meet.Zotero.getRelatedText(Meet.Global.input || "")
+      default:
+        if (name.startsWith("selected_item_field:")) {
+          const fieldName = name.slice("selected_item_field:".length)
+          if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(fieldName)) {
+            throw new Error(`Unsupported placeholder: {{${name}}}`)
+          }
+          return Meet.Zotero.getItemField(fieldName) || ""
+        }
+        throw new Error(`Unsupported placeholder: {{${name}}}`)
+    }
+  }
+
+  private async resolvePlaceholders(text: string) {
+    if (/\$\{[\s\S]+?\}/.test(text) || /```j(?:ava)?s(?:cript)?/i.test(text)) {
+      throw new Error("Legacy JavaScript tag syntax is no longer supported. Use safe placeholders like {{input}} or {{pdf_selection}}.")
+    }
+    const placeholders = [...text.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)]
+    for (const match of placeholders) {
+      const rawString = match[0]
+      const placeholder = match[1]
+      text = text.replace(rawString, await this.resolvePlaceholder(placeholder))
+    }
+    return text
+  }
+
   /**
-   * GPT写的
-   * @param node 
+   * Generated drag handler
    */
   private addDragEvent(node: HTMLDivElement) {
     let posX: number, posY: number
@@ -247,7 +283,7 @@ export default class Views {
     let isDragging: boolean = false
 
     function handleMouseDown(event: MouseEvent) {
-      // 如果是input或textarea元素，跳过拖拽逻辑
+      // Skip drag logic for input, textarea, and tag elements
       if (
         event.target instanceof window.HTMLInputElement ||
         event.target instanceof window.HTMLTextAreaElement ||
@@ -281,8 +317,7 @@ export default class Views {
 
 
   /**
-   * GPT写的
-   * @param inputNode 
+   * Generated history key handler
    */
   private bindUpDownKeys(inputNode: HTMLInputElement) {
     // let currentIdx = this._history.length;
@@ -317,13 +352,12 @@ export default class Views {
   }
 
   /**
-   * 绑定ctrl+滚轮放大缩小
-   * @param div 
+   * Bind Ctrl+wheel zoom on the container
    */
   private bindCtrlScrollZoom(div: HTMLDivElement) {
-      // 为指定的div绑定wheel事件
+      // Bind wheel events for the target div
     div.addEventListener('DOMMouseScroll', (event: any) => {
-      // 检查是否按下了ctrl键
+      // Check whether Ctrl or Meta is pressed
       if (event.ctrlKey || event.metaKey) {
         let _scale = div.style.transform.match(/scale\((.+)\)/)
         let scale = _scale ? parseFloat(_scale[1]) : 1
@@ -334,11 +368,11 @@ export default class Views {
           div.style.transformOrigin = "center center"
         }
         if (event.detail > 0) {
-          // 缩小
+          // Zoom out
           scale = scale - step
           div.style.transform = `scale(${scale < minScale ? minScale : scale})`;
         } else {
-          // 放大
+          // Zoom in
           scale = scale + step
           div.style.transform = `scale(${scale > maxScale ? maxScale : scale})`;
         }
@@ -347,8 +381,7 @@ export default class Views {
   }
 
   /**
-   * 绑定ctrl+滚轮放大缩小控件内的所有元素
-   * @param div
+   * Bind Ctrl+wheel zoom for all output children
    */
   private bindCtrlScrollZoomOutput(div: HTMLDivElement) {
     const styleAttributes = {
@@ -363,7 +396,7 @@ export default class Views {
     type StyleAttributes = {
       [K in StyleAttributeKeys]: string;
     };
-    // 获取子元素的初始样式
+    // Read initial child styles
     const getChildStyles = (child: Element): StyleAttributes => {
       const style = window.getComputedStyle(child);
       const result: Partial<StyleAttributes> = {};
@@ -374,7 +407,7 @@ export default class Views {
       return result as StyleAttributes;
     };
   
-    // 更新并应用子元素的样式
+    // Update and apply child styles
     const applyNewStyles = (child: HTMLElement, style: StyleAttributes, scale: number) => {
       const newStyle = (value: string) => parseFloat(value) * scale + 'px';
   
@@ -382,13 +415,13 @@ export default class Views {
         child.style && (child.style[key as StyleAttributeKeys] = newStyle(style[key as StyleAttributeKeys]))
       }
     };
-    // 为指定的div绑定wheel事件
+    // Bind wheel events for the target div
     div.addEventListener('DOMMouseScroll', (event: any) => {
       const children = div.children[0].children;
       if (event.ctrlKey || event.metaKey) {
         const step = 0.05;
         event.preventDefault();
-        // 阻止事件冒泡
+        // Stop propagation
         event.stopPropagation();
         const scale = event.detail > 0 ? 1 - step : 1 + step;
         Array.from(children).forEach((child) => {
@@ -401,7 +434,7 @@ export default class Views {
   }
 
   private buildContainer() {
-    // 顶层容器
+    // Root container
     const container = ztoolkit.UI.createElement(document, "div", {
       id: this.id,
       styles: {
@@ -423,7 +456,7 @@ export default class Views {
     })
     this.addDragEvent(container)
     this.bindCtrlScrollZoom(container)
-    // 输入
+    // Input area
     const inputContainer = this.inputContainer = ztoolkit.UI.appendElement({
       tag: "div",
       id: "input-container",
@@ -479,13 +512,13 @@ export default class Views {
       // @ts-ignore
       let text = Meet.Global.input = this.value
       if ((event.ctrlKey || event.metaKey) && ["s", "r"].indexOf(event.key) >= 0 && textareaNode.style.display != "none") {
-        // 必定保存，但未必运行
+        // Always save first, but do not always run
         const tag = parseTag(text)
         if (tag) {
           // @ts-ignore
           this.value = tag.text
           let tags = that.getTags()
-          // 如果tags存在，可能是更新，先从tags里将其移除
+          // If a tag already exists, remove the old version before updating
           tags = tags.filter((_tag: Tag) => {
             return _tag.tag != tag.tag
           })
@@ -498,16 +531,15 @@ export default class Views {
               .show()
             return
           }
-          // 运行代码，并保存标签
+          // Run the tag template and save it
           if (event.key == "r") {
             return that.execTag(tag)
           }
         }
-        // 普通文本
+        // Plain text
         else {
-          // 运行文本呢
+          // Run long text as an unsaved tag template
           if (event.key == "r") {
-            // 长文本当作未保存的命令标签执行，长文本里可以写js
             return that.execTag({tag: "Untitled", position: -1, color: "", trigger: "", text})
           }
         }
@@ -517,14 +549,14 @@ export default class Views {
         
         outputContainer.querySelector(".auxiliary")?.remove()
 
-        // 同时按Ctrl，会点击第一个标签
+        // Ctrl+Enter reruns the first matching tag
         if (event.ctrlKey || event.metaKey) {
-          // 查找第一个点击
+          // Find the first clickable tag
           ztoolkit.log("Ctrl + Enter")
           let tag = that._tag || that.getTags()[0]
           return that.execTag(tag)
         }
-        // 按住Shift，进入长文本编辑模式，此时应该通过Ctrl+R来运行
+        // Shift+Enter switches to multiline mode, then Ctrl+R runs it
         if (event.shiftKey) {
           if (inputNode.style.display != "none") {
             inputNode.style.display = "none"
@@ -534,7 +566,7 @@ export default class Views {
           }
           return
         }
-        // 优先级最高，防止中文输入法回车转化成英文
+        // Highest priority to avoid IME enter-key conflicts
         if (text.length != lastInputText.length) {
           lastInputText = text
           return
@@ -544,7 +576,7 @@ export default class Views {
             inputNode.style.display = "none"
             textareaNode.style.display = ""
             textareaNode.focus()
-            // 判断本地是否存在这个标签
+            // Check whether the tag already exists locally
             const tags = that.getTags();
             const tag = tags.find((tag: any) => tag.text.startsWith(text.split("\n")[0]))
             if (tag) {
@@ -555,7 +587,7 @@ export default class Views {
           }
         } else if (text.startsWith("/")) {
           that._history.push(text)
-          // 尝试结束其它stream的生命
+          // Try to stop any other active streams
           // that._id = undefined
           that.stopAlloutput()
           text = text.slice(1)
@@ -569,10 +601,8 @@ export default class Views {
             that.setText(help, true, false)
           } else if (key == "report") { 
             const secretKey = Zotero.Prefs.get(`${config.addonRef}.secretKey`) as string
-            // window.setTimeout(() => {
-            //   Zotero.launchURL("https://platform.openai.com/account/usage")
-            // }, 1000)
-            return that.setText(`\`api\` ${Zotero.Prefs.get(`${config.addonRef}.api`)}\n\`secretKey\` ${secretKey.slice(0, 3) + "..." + secretKey.slice(-4)}\n\`model\` ${Zotero.Prefs.get(`${config.addonRef}.model`)}\n\`temperature\` ${Zotero.Prefs.get(`${config.addonRef}.temperature`)}`, true, false)
+            const maskedKey = secretKey ? `${secretKey.slice(0, 3)}...${secretKey.slice(-4)}` : "(not set)"
+            return that.setText(`\`api\` ${Zotero.Prefs.get(`${config.addonRef}.api`)}\n\`secretKey\` ${maskedKey}\n\`model\` ${Zotero.Prefs.get(`${config.addonRef}.model`)}\n\`temperature\` ${Zotero.Prefs.get(`${config.addonRef}.temperature`)}`, true, false)
           } else if (["secretKey", "model", "api", "temperature", "deltaTime", "width", "tagsMore", "chatNumber", "relatedNumber"].indexOf(key) >= 0) {  
             if (value?.length > 0) {
               if (value == "default") {
@@ -626,7 +656,7 @@ export default class Views {
         }
       } else if (event.key == "Escape") {
         outputContainer.style.display = "none"
-        // 退出长文编辑模式
+        // Exit multiline mode
         if (textareaNode.style.display != "none") {
           textareaNode.style.display = "none"
           inputNode.value = ""
@@ -638,10 +668,9 @@ export default class Views {
           inputNode.value = ""
           return
         }
-        // 退出container
+        // Close the container
         that.hide()
         that.container!.remove()
-        that.isInNote && Meet.BetterNotes.reFocus()
       } else if (event.key == "/" && text == "/" && that.container.querySelector("input")?.style.display != "none") {
         const rect = that.container.querySelector("input")!.getBoundingClientRect()
         const commands = ["clear", "help", "report", "secretKey", "model", "api", "temperature", "chatNumber", "relatedNumber" , "deltaTime", "tagsMore", "width"]
@@ -662,7 +691,7 @@ export default class Views {
     }
     inputNode.addEventListener("keyup", inputListener)
     textareaNode.addEventListener("keyup", inputListener)
-    // 输出
+    // Output area
     const outputContainer = this.outputContainer = ztoolkit.UI.appendElement({
       tag: "div",
       id: "output-container",
@@ -687,54 +716,19 @@ export default class Views {
             // margin: ".5em 0"
           },
           properties: {
-            // 用于复制
+            // Used for copying plain text
             pureText: ""
           }
         }
       ],
       listeners: [
         {
-          /**
-           * 双击是插件的输出，可能是插入笔记
-           */
           type: "dblclick",
           listener: () => {
-            // 无论后面发生什么错误，都确保先复制下来
-            // 目前可能用户的Better Notes版本低，不支持API
             const text = outputContainer.querySelector("[pureText]")!.getAttribute("pureText") || ""
             new ztoolkit.Clipboard()
               .addText(text, "text/unicode")
               .copy()
-            const div = outputContainer.cloneNode(true) as HTMLDivElement
-            div.querySelector(".auxiliary")?.remove()
-            const htmlString = div.innerHTML
-            if (Zotero_Tabs.selectedIndex == 1 && Zotero.BetterNotes) {
-              Meet.BetterNotes.insertEditorText(htmlString)
-              this.hide()
-              new ztoolkit.ProgressWindow(config.addonName)
-                .createLine({ text: "Insert To Main Note", type: "success" })
-                .show()
-              return
-            }
-            if (Zotero_Tabs.selectedIndex > 0) {
-              const parentID = Zotero.Items.get(
-                Zotero.Reader.getByTabID(Zotero_Tabs.selectedID)!.itemID as number
-              ).parentID
-              
-              const editor = Zotero.Notes._editorInstances.find(
-                (e) =>
-                  e._item.parentID === parentID && !Components.utils.isDeadWrapper(e._iframeWindow)
-              );
-              ztoolkit.log(editor)
-              // 笔记被打开，且打开笔记视图，才触发向当前条目笔记插入
-              if (editor && document.querySelector("#zotero-tb-toggle-notes-pane.toggled")) {
-                Meet.BetterNotes.insertEditorText(htmlString, editor)
-                new ztoolkit.ProgressWindow(config.addonName)
-                  .createLine({ text: "Insert To Note", type: "success" })
-                  .show()
-                return
-              }
-            }
             new ztoolkit.ProgressWindow(config.addonName)
               .createLine({ text: "Copy Plain Text", type: "success" })
               .show()
@@ -743,7 +737,7 @@ export default class Views {
       ]
     }, container) as HTMLDivElement
     this.bindCtrlScrollZoomOutput(outputContainer)
-    // 命令标签
+    // Command tags
     const tagsMore = Zotero.Prefs.get(`${config.addonRef}.tagsMore`) as string
     const tagsContainer = this.tagsContainer = ztoolkit.UI.appendElement({
       tag: "div",
@@ -820,7 +814,7 @@ export default class Views {
     }, container) as HTMLDivElement
     document.documentElement.append(container)
     this.renderTags()
-    // 聚焦
+    // Focus
     window.setTimeout(() => {
       container.focus()
       inputContainer.focus()
@@ -830,7 +824,7 @@ export default class Views {
   }
 
   /**
-   * 渲染标签，要根据position排序
+   * Render tags sorted by position
    */
   private renderTags() {
     this.tagsContainer!?.querySelectorAll("div").forEach(e=>e.remove())
@@ -841,7 +835,7 @@ export default class Views {
   }
 
   /**
-   * 添加一个标签
+   * Add a single tag
    */
   private addTag(tag: Tag, index: number) {
     let [red, green, blue] = this.utils.getRGB(tag.color)
@@ -874,7 +868,7 @@ export default class Views {
             timer = window.setTimeout(() => {
               timer = undefined
               if (event.buttons == 1) {                
-                // 进入编辑模式
+                // Enter edit mode
                 const textareaNode = this.inputContainer?.querySelector("textarea")!
                 const inputNode = this.inputContainer?.querySelector("input")!
                 inputNode.style.display = "none";
@@ -916,7 +910,7 @@ export default class Views {
     }, div)
   }
   /**
-   * 执行标签
+   * Execute a tag
    */
   private async execTag(tag: Tag) {
     Meet.Global.input = this.inputContainer.querySelector("input")?.value as string
@@ -938,34 +932,19 @@ export default class Views {
     outputDiv.innerHTML = ""
     outputDiv.setAttribute("pureText", "");
     let text = tag.text.replace(/^#.+\n/, "")
-    // 旧版语法不宜传播，MD语法会被转义
-    for (let rawString of text.match(/```j(?:ava)?s(?:cript)?\n([\s\S]+?)\n```/g)! || []) {
-      let codeString = rawString.match(/```j(?:ava)?s(?:cript)?\n([\s\S]+?)\n```/)![1]
-      try {
-        text = text.replace(rawString, await window.eval(`${codeString}`))
-      } catch { }
-    }
-    // 新版语法容易分享传播
-    for (let rawString of text.match(/\$\{[\s\S]+?\}/g)! || []) {
-      let codeString = rawString.match(/\$\{([\s\S]+?)\}/)![1]
-      try {
-        text = text.replace(rawString, await window.eval(`${codeString}`))
-      } catch {  }
+    try {
+      text = await this.resolvePlaceholders(text)
+    } catch (error: any) {
+      popunWin.createLine({ text: error.message, type: "fail" })
+      popunWin.startCloseTimer(3000)
+      this.showError("Unsafe Tag Blocked", error.message)
+      return
     }
     popunWin.createLine({ text: `Characters ${text.length}`, type: "success" })
     popunWin.createLine({ text: "Answering...", type: "default" })
-    // 运行替换其中js代码
     text = await Meet.OpenAI.getGPTResponse(text) as string
     this.dotsContainer?.classList.remove("loading")
     if (text.trim().length) {
-      try {
-        window.eval(`
-          setTimeout(async () => {
-            ${text}
-          })
-        `)
-        popunWin.createLine({ text: "Code is executed", type: "success" })
-      } catch { }
       popunWin.createLine({ text: "Done", type: "success" })
     } else {
       popunWin.createLine({ text: "Done", type: "fail" })
@@ -974,25 +953,24 @@ export default class Views {
   }
 
   /**
-   * 执行输入框文本
-   * @param text 
-   * @returns 
+   * Execute the current input text
    */
   private async execText(text: string) {
-    // 如果文本中存在某一标签预设的关键词|正则表达式，则转为执行该标签
+    // If input matches a tag trigger, run that tag instead
     const tag = this.getTags()
       .filter((tag: Tag) => tag.trigger?.length > 0)
       .find((tag: Tag) => {
       const trigger = tag.trigger
       if (trigger.startsWith("/") && trigger.endsWith("/")) {
-        return (window.eval(trigger) as RegExp).test(text)
+        const regex = this.parseTrigger(trigger)
+        return regex ? regex.test(text) : text.indexOf(trigger) >= 0
       } else {
         return text.indexOf(trigger as string) >= 0
       }
     })
     if (tag) { return this.execTag(tag) }
 
-    // 没有匹配执行文本
+    // Otherwise execute the input as plain text
     this.outputContainer.style.display = "none"
     const outputDiv = this.outputContainer.querySelector("div")!
     outputDiv.innerHTML = ""
@@ -1004,11 +982,10 @@ export default class Views {
   }
 
   /**
-   * 从Zotero.Prefs获取所有已保存标签
-   * 按照position顺序排序后返回
+   * Read saved tags from Zotero.Prefs and return them sorted by position
    */
   private getTags() {
-    // 进行一个简单的处理，应该是中文/表情写入prefs.js导致的bug
+    // Work around prefs parsing issues caused by Unicode content
     let tagsJson
     try {
       tagsJson = Zotero.Prefs.get(`${config.addonRef}.tags`) as string
@@ -1031,9 +1008,7 @@ export default class Views {
   }
 
   /**
-   * 下面代码是GPT写的
-   * @param x 
-   * @param y 
+   * Generated positioning helper
    */
   public show(x: number = -1, y: number = -1, reBuild: boolean = true) {
     reBuild = reBuild || !this.container
@@ -1075,7 +1050,7 @@ export default class Views {
   }
 
   /**
-   * 关闭界面清除所有setInterval
+   * Hide the UI and clear all active intervals
    */
   public hide() {
     this.container.style.display = "none"
@@ -1088,9 +1063,8 @@ export default class Views {
   }
 
   /**
-   * 在输出界面插入辅助按钮
-   * 这是一个极具扩展性的函数
-   * 帮助定位，比如定位条目，PDF段落，PDF注释
+   * Insert auxiliary buttons into the output area.
+   * This is highly extensible and helps jump to items, PDF passages, and annotations.
    */
   public insertAuxiliary(docs: Document[]) {
     this.outputContainer.querySelector(".auxiliary")?.remove()
@@ -1148,7 +1122,7 @@ export default class Views {
   }
 
   /**
-   * 创建选项
+   * Create a menu
    */
   public createMenuNode(
     rect: { x: number, y: number, width: number, height: number },
@@ -1252,7 +1226,7 @@ export default class Views {
     
     const winRect = document.documentElement.getBoundingClientRect()
     const nodeRect = menuNode.getBoundingClientRect()
-    // 避免溢出
+    // Avoid overflow
     if (nodeRect.bottom > winRect.bottom) {
       menuNode.style.top = ""
       menuNode.style.bottom = "0px"
@@ -1289,11 +1263,10 @@ export default class Views {
   }
 
   /**
-   * 绑定快捷键
+   * Register keyboard shortcuts
    */
   private registerKey() {
     const callback = async () => {
-      this.isInNote = false
       if (Zotero_Tabs.selectedIndex == 0) {
         const div = document.querySelector("#item-tree-main-default .row.selected")!
         if (div) {
@@ -1351,30 +1324,6 @@ export default class Views {
     document.addEventListener(
       "keydown",
       async (event: any) => {
-        // 笔记内按空格
-        if (
-          Zotero_Tabs.selectedIndex == 1 &&
-          event.explicitOriginalTarget.baseURI.indexOf("note-editor") >= 0 &&
-          event.code == "Space" &&
-          Zotero.BetterNotes.api.editor
-        ) {
-          this.isInNote = true
-          const doc = event.explicitOriginalTarget.ownerDocument
-          let selection = doc.getSelection()
-          let range = selection.getRangeAt(0);
-          const span = range.endContainer
-          let text = await Meet.BetterNotes.getEditorText(span)
-          ztoolkit.log(text)
-          this.messages = [{
-            role: "user",
-            content: text
-          }]
-          if (/[\n ]+/.test(span.innerText)) {
-            Meet.BetterNotes.follow(span)
-            event.preventDefault();
-          }
-          return 
-        }
         if (
           (event.shiftKey && event.key.toLowerCase() == "?") ||
           (event.key == "/" && Zotero.isMac)) {
@@ -1391,4 +1340,3 @@ export default class Views {
     );
   }
 }
-

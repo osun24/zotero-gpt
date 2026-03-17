@@ -1,10 +1,10 @@
-#期刊介绍[pos=9]
+#Journal Introduction[pos=9]
 
-介绍一下下面这个期刊：  
+Introduce the following journal:
 ```js
 ZoteroPane.getSelectedItems()[0].getField("publicationTitle")
 ```
 
 ---
 
-应用场景: 选中主界面条目时候
+Usage: when an item is selected in the main pane

@@ -1,6 +1,6 @@
 #🔍SearchItems[position=9][color=#ED5629]
 
-现在你是一个数据库系统，下面是一些JSON信息，每个JSON对应Zotero一篇文献：
+You are now acting as a database system. Below is a set of JSON records, where each JSON object corresponds to one Zotero paper:
 
 ---
 
@@ -16,11 +16,11 @@ window.gptInputString
 
 ---
 
-我现在在寻找一篇文献，它很可能就在我上面给你的文献之中。下面是对我想找的文献的描述：
+I am looking for a paper, and it is likely among the papers listed above. Below is my description of the paper I want to find:
 ```js
 window.gptInputString 
 ```
 
-请你回答最有可能是哪几篇文献，请同时给出最可能的一篇。
+Please identify the papers that are most likely to match, and also give the single most likely paper.
 
-Reply in 简体中文
+Reply in English

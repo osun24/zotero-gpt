@@ -1,63 +1,46 @@
 <div align="center">
   <img src="imgs/background.png" width="50%" />
 
+# Zotero GPT
 
-# Awesome GPT
+Use an OpenAI-compatible model inside Zotero to ask questions about papers, PDFs, selections, and annotations.
 
-
-👋
-
-Welcome to share your command tag [here](https://github.com/MuiseDestiny/zotero-gpt/discussions/3) using [Meet API](src/modules/Meet/api.ts).
-
-[![Using Zotero Plugin Template](https://img.shields.io/badge/Using-Zotero%20Plugin%20Template-blue?style=flat-round&logo=github)](https://github.com/windingwind/zotero-plugin-template)
 [![Latest release](https://img.shields.io/github/v/release/MuiseDestiny/zotero-gpt)](https://github.com/MuiseDestiny/zotero-gpt/releases)
-![Release Date](https://img.shields.io/github/release-date/MuiseDestiny/zotero-gpt?color=9cf)
 [![License](https://img.shields.io/github/license/MuiseDestiny/zotero-gpt)](https://github.com/MuiseDestiny/zotero-gpt/blob/master/LICENSE)
-![Downloads latest release](https://img.shields.io/github/downloads/MuiseDestiny/zotero-gpt/latest/total?color=yellow)
-
-
-  <img src="https://user-images.githubusercontent.com/51939531/228763331-90baa9aa-8bef-4b32-9d6f-35538b58b158.png" width="80%" />
-
 </div>
 
+## What This Plugin Does
 
+Zotero GPT adds a small chat and prompt window to Zotero. You can use it to:
 
+- ask questions about the PDF you are reading
+- ask questions about selected items in your library
+- work from highlighted text or annotations
+- save reusable prompt tags for common tasks
+- stream answers directly inside Zotero
 
----
+This plugin does not include its own AI service. You connect it to your own OpenAI-compatible API endpoint and use your own API key.
 
-## 🚀 Main Features
-Features about GPT:  
-- [x] 🔗 **Integrate with Zotero**: You can use the plugin to search and ask items in the library based on the selected text or the PDF file.
-- [x] 🧠 Use GPT to generate reply text: support `gpt-3.5-turbo` and `gpt-4`
-- [x] 🏷️ [Command tags](https://github.com/MuiseDestiny/zotero-gpt#command-tags): **Click once** to accelerate your research.  
-  - [x] 💬 Ask questions about current **PDF file** (full-text or selected text).
-  - [x] 💬 Ask questions about **selected paper** (Abstract).
-  - [x] 📝 **Summarize the selected paper** into several highly condensed sentences.
-  - [x] 🔍 **Search items** in the library based on the selected text.
-  - [x] ... ...
-- [x] ⚙️ **Advanced settings for GPT**: You can set the [api key](https://platform.openai.com/account/api-keys), [model name](https://platform.openai.com/docs/api-reference/chat/create#chat/create-model), [api url](https://platform.openai.com/docs/api-reference/chat/create), [temperature](https://platform.openai.com/docs/api-reference/chat/create#chat/create-temperature).
-- [x] 📚 **Integrate with Better Notes**: You can directly open this plugin when using [Better Notes](https://github.com/windingwind/zotero-better-notes).
+## Before You Start
 
-Features about UI:
-- [x] 🎨 **Real-time markdown rendering** for reply text: Latex and mathjax are supported.
-- [x] 🔍 **Zoom in and out** of the reply text or the size of the plugin window.
-- [x] 🖱️ **Move the plugin window to any position** on the screen.
-- [x] 📋 **Copy the reply text** to the clipboard.
-- [x] ⚠️ Detailed **error message** will be displayed when the request fails.
-- [x] 🔧 Compatible with **Zotero 6** and **Zotero 7**.
-- [x] 🎉 Discover more exciting features that are not listed here.
+You need:
 
+- Zotero
+- an API key for an OpenAI-compatible model provider
+- an API endpoint URL, such as `https://api.openai.com`
 
-## How to use
-- [x] Get `.xpi` file
-  - [ ] [download latest](https://github.com/MuiseDestiny/zotero-gpt/releases/latest/download/zotero-gpt.xpi) release `.xpi` file
-  - [ ] or build this project [1] to generate a `.xpi` file
-- [x] Install `.xpi` file in Zotero [2]
-- [x] Open Zotero GPT [3]
-- [x] Set your `OpenAI` secret key [4]
+## Install
 
-### [1] Build the project
-Here is an example on how to build this project. For more information on how to build, please visit this project: [https://github.com/windingwind/zotero-plugin-template](https://github.com/windingwind/zotero-plugin-template)
+### Option 1: Download a Release
+
+1. Download the latest `.xpi` file from the project releases page.
+2. Open Zotero.
+3. Go to `Tools > Add-ons`.
+4. Click the gear icon.
+5. Choose `Install Add-on From File`.
+6. Select the `.xpi` file.
+
+### Option 2: Build It Yourself
 
 ```bash
 git clone https://github.com/MuiseDestiny/zotero-gpt.git
@@ -65,70 +48,162 @@ cd zotero-gpt
 npm install
 npm run build
 ```
-The generated `.xpi` file in the build directory is the extension that you can install in Zotero.
 
-### [2] Install the extension in Zotero
-Open Zotero. In the top menu bar, click on `Tools > Add-ons`.
-Click on the gear icon at the top right of the window. Click on `Install Add-on From File` and open the generated `.xpi` file in the build directory from the previous step.
+After building, install the generated `.xpi` file in Zotero using the same steps above.
 
-### [3] Open/Exit Zotero GPT
+## First-Time Setup
 
-|Action|Shortcut|
-|--|--|
-|Open|<img src="https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/f76b23ee-8c54-47da-823c-8c14faa88a87" width="20%">|
-|Exit|`ESC`|
-|Multi-line editing| `Shift` + `Enter`|
+1. Open Zotero GPT inside Zotero.
+2. Set your API key:
 
-### [4] Set up the API key
-
-![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/225c468a-acfc-43be-b5ac-cf6aaaa33e96)
-
-## Hi, Command Tag.
-> 👻 Follow the steps below, and you will gain a new understanding of command tags.
-
-|Step| Description | Supplementary Information |
-|----|-------------|---------------------------|
-|1   | Open Zotero GPT | Refer to [3] Open/Exit Zotero GPT |
-|2   | Type `#Tag Name` and press `Enter` | ![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/52f776fc-5592-4c17-8c36-7769c537ef79) |
-|3   | Input your prompt or code | ![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/6f6d9985-69e5-4d29-ba78-df31e30e9cd1) |
-|4   | **R**un your tag | Press `Ctrl + R` |
-|5   | **S**ave your tag | Press `Ctrl + S` |
-|6   | Long press a command tag to access the editing interface | ![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/28235117-79ab-43c6-b175-079e609683f4) |
-|7   | Modify the tag's color, position, or trigger; remember to save with `Ctrl + S` | ![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/5261878a-30ce-4ea5-b3be-9c6b9ef29f70) |
-|8   | Press `ESC` to exit the editing interface | Remember to save your changes with `Ctrl + S` before exiting |
-|9   | Long press the right mouse button to delete a tag | Note: Build-in tags do not support deletion |
-
-### How to run a command tag
-> Trigger is an attribute of a command tag, as are color and position. Long press any label to view/modify its trigger word. It supports both plain text and JS regular expressions.
-
-![How to run a command tag](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/fdfc369a-1e96-478c-a7c2-4a93d2d7a580)
-
-![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/d7f857a4-9ed9-42af-8662-6336ce70a881)
-
-
-### How to write a code block
-
-You can find some build-in APIs [here](https://github.com/MuiseDestiny/zotero-gpt/blob/bootstrap/src/modules/Meet/api.ts).
-
-A simple example:
-```
-Summarize the following paragraph for me:
-
-${Meet.Zotero.getPDFSelection()}
+```text
+/secretKey sk-...
 ```
 
-Here, the `Summarize the following paragraph for me:` represents plain text, while `${your code}` denotes a code snippet. Undoubtedly, if you are familiar with Zotero APIs, you can develop your own code. The code snippet will be executed, and the text returned by the code snippet will replace the code snippet. Finally, the replaced text will be input to GPT. So, theoretically, you can **accomplish all interactions** between Zotero and GPT using command tags.
+3. If needed, set a custom API endpoint:
 
-### How to navigate historical chats
+```text
+/api https://api.openai.com
+```
 
-> Press the up (↑) and down (↓) keys on the keyboard to navigate.
+4. Optionally choose a model:
 
-![image](https://github.com/MuiseDestiny/zotero-gpt/assets/51939531/ca2dcfbf-efb4-4ba3-8339-5277a879e3ea)
+```text
+/model gpt-4
+```
 
-### GPT Tag Recommendation
-Automatically create tags for entries: [open and copy](https://github.com/MuiseDestiny/zotero-gpt/blob/bootstrap/tags/Add-Controlled-Tagger) then open Zotero, this tag will be automatically imported into Zotero.
+## Basic Usage
 
-## Support the project
+### Open the Window
 
-[Here](https://github.com/MuiseDestiny/zotero-reference#%E8%B5%9E%E5%8A%A9)
+Open Zotero GPT with the plugin shortcut in Zotero. Once open:
 
+- press `Enter` to send a question
+- press `Shift + Enter` to switch to multiline input
+- press `Esc` to close or clear the current input
+
+### Ask About a PDF
+
+Open a PDF in Zotero, select some text if needed, then ask a question in the Zotero GPT window.
+
+Examples:
+
+- `Summarize this paper`
+- `What is the main method?`
+- `Explain this paragraph in simpler language`
+
+### Ask About Library Items
+
+Select one or more items in your Zotero library and ask a question such as:
+
+- `What do these papers have in common?`
+- `Which of these papers is about reinforcement learning?`
+- `Summarize the selected item`
+
+## Prompt Tags
+
+Prompt tags are saved templates for tasks you use often.
+
+You can:
+
+- create a tag by typing a line that starts with `#`
+- save it with `Ctrl + S`
+- run it with `Ctrl + R`
+- long-press a tag to edit it
+- right-long-click a tag to delete it
+
+Tags can also have triggers, so a tag runs automatically when your input matches a word or regular expression.
+
+Example trigger styles:
+
+- plain text: `translate`
+- regex: `/^translate/i`
+
+## Safe Placeholders
+
+Tags can insert Zotero data using safe placeholders.
+
+Supported placeholders:
+
+- `{{input}}`
+- `{{pdf_selection}}`
+- `{{clipboard}}`
+- `{{selected_item_json}}`
+- `{{selected_item_field:abstractNote}}`
+- `{{pdf_annotations}}`
+- `{{selected_pdf_annotations}}`
+- `{{related_text}}`
+
+Example tag:
+
+```text
+#AskPDF[position=10][color=#0EA293][trigger=/(paper|article|this paper)/i]
+You are a helpful assistant. Context information is below.
+
+{{related_text}}
+
+Answer the question: {{input}}
+```
+
+If a tag contains an unknown placeholder, the plugin stops and shows an error.
+
+Old JavaScript-style tag syntax such as `${...}` is not supported.
+
+## Built-In Commands
+
+You can type these commands directly into the input box:
+
+- `/help` shows available commands
+- `/clear` clears chat history
+- `/report` shows current settings
+- `/secretKey sk-xxx` sets your API key
+- `/api https://api.openai.com` sets the API endpoint
+- `/model gpt-4` sets the model name
+- `/temperature 1.0` sets the sampling temperature
+- `/chatNumber 3` sets how many previous messages are kept
+- `/relatedNumber 5` sets how many related passages are used
+- `/deltaTime 100` controls streaming speed in milliseconds
+- `/width 32%` changes the window width
+- `/tagsMore expand` changes tag display mode
+
+## Privacy and Security
+
+This plugin is safer than earlier versions, but you should still understand what it sends.
+
+- Requests are sent only to the API endpoint you configure.
+- There are no built-in third-party fallback chat services.
+- Model output is displayed as text and is not executed as code.
+- Tag templates use safe placeholders only.
+- Your API key is stored in Zotero preferences, not in your operating system keychain.
+
+Important:
+
+- If you use `{{clipboard}}`, your clipboard text is sent to your configured AI endpoint.
+- If you use `{{selected_item_json}}`, item metadata is sent to your configured AI endpoint.
+- If you use `{{related_text}}`, extracted paper content is sent to your configured AI endpoint.
+
+Only use an API provider you trust.
+
+## Troubleshooting
+
+### Nothing happens when I ask a question
+
+Check that you have set:
+
+- `/secretKey`
+- `/api` if you are not using the default endpoint
+- `/model` if your provider requires a specific model name
+
+### I see an error about placeholders
+
+Make sure your tag uses only the supported `{{...}}` placeholders listed above.
+
+### My old tags stopped working
+
+Older JavaScript-based tags were intentionally removed for safety. Rewrite them using safe placeholders.
+
+## Current Limitations
+
+- This plugin does not use the OS keychain for API key storage.
+- Legacy programmable tags are no longer supported.
+- Some older example tag files in the repository may need updating if you are using them manually.

@@ -1,7 +1,7 @@
-#总结实验方法[pos=9]
+#Summarize Experiment Method[pos=9]
 
-请用子弹列表的形式提取该段落的信息，包括，被试数量，实验设计(如, 2(Gender: male vs female) X 2(Matching Condition: matching or mismatching))，实验流程(如，被试首先观看刺激，然后进行反应，最后呈现反馈给被试)。务必使用中文回答。  
-下面是论文的方法部分：  
+Extract the information from this paragraph in bullet points, including participant count, experimental design (for example, `2 (Gender: male vs female) x 2 (Matching Condition: matching or mismatching)`), and procedure (for example, participants viewed stimuli, responded, and then received feedback). Answer in English.
+Below is the method section of the paper:
 ```js
 const ztoolkit = Zotero.ZoteroGPT.data.ztoolkit
 let getSelection = () => {
@@ -15,4 +15,4 @@ getSelection()
 
 ---
 
-选中PDF文字时候
+Usage: when text is selected in a PDF

@@ -10,7 +10,7 @@ Zotero.ZoteroGPT.utils.getClipboardText()
 
 ---
 
-please answer this question based on above content (use 简体中文)：  
+Please answer this question based on the content above in Simplified Chinese:
 ```js
 Zotero.ZoteroGPT.views.inputContainer.querySelector("input").value
 ```

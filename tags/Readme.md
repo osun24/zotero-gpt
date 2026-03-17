@@ -1,13 +1,30 @@
 ## About Tag
 
-You can long click on the tag below to see its internal pseudo-code.
-You can type #xxx and enter to create a tag and save it with Ctrl + S, during which you can execute it with Ctrl + R.
+You can long click on a tag to edit it.
+You can type `#xxx` and press `Enter` to create a tag, save it with `Ctrl + S`, and run it with `Ctrl + R`.
 You can right-click and long-click a tag to delete it.
 
+Tags are safe prompt templates. JavaScript is not supported.
+
+Supported placeholders:
+
+- `{{input}}`
+- `{{pdf_selection}}`
+- `{{clipboard}}`
+- `{{selected_item_json}}`
+- `{{selected_item_field:abstractNote}}`
+- `{{pdf_annotations}}`
+- `{{selected_pdf_annotations}}`
+- `{{related_text}}`
+
+Legacy `${...}` blocks are rejected.
+
 ## About Output Text
-You can double click on this text to copy GPT's answer.
-You can long press me without releasing, then move me to a suitable position before releasing.
+
+You can double click this text to copy GPT's answer.
+You can long press and drag the window to reposition it.
 
 ## About Input Text
-You can type the question in my header, enter and ask me a question.
-You can exit me by pressing Esc above my head and wake me up by pressing Shift + / in the Zotero window.
+
+You can type the question in the header and press `Enter` to ask it.
+You can exit by pressing `Esc` and wake the plugin with `Shift + /` in the Zotero window.

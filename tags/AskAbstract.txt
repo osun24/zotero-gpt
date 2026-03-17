@@ -1,6 +1,6 @@
-#摘要提问[pos=0]
+#Ask Abstract[pos=0]
 
-下面是一篇论文的摘要：
+Below is the abstract of a paper:
 
 ```js
 const ztoolkit = Zotero.ZoteroGPT.data.ztoolkit
