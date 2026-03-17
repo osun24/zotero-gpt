@@ -7,14 +7,6 @@ import {
 } from "./Zotero"
 
 import {
-  getEditorText,
-  insertEditorText,
-  replaceEditorText,
-  follow,
-  reFocus
-} from "./BetterNotes"
-
-import {
   getGPTResponse
 } from "./OpenAI"
 import Views from "../views";
@@ -59,17 +51,6 @@ const Meet: {
      * getPDFAnnotations() 默认返回所有标注
      */
     getPDFAnnotations,
-  },
-  /**
-   * 部分开放
-   * 下列函数只针对主笔记
-   */
-  BetterNotes: {
-    getEditorText,
-    insertEditorText,
-    replaceEditorText,
-    follow,
-    reFocus
   },
   OpenAI: {
     getGPTResponse

@@ -5,3 +5,4 @@ zotero-cmd.json
 README.md
 .env
 **/test
+.DS_Store
