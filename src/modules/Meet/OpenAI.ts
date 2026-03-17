@@ -7,6 +7,10 @@ import Meet from "./api";
 
 const similarity = require("compute-cosine-similarity");
 
+const EMBEDDING_REQUEST_TIMEOUT_MS = 30_000
+const CHAT_REQUEST_TIMEOUT_MS = 300_000
+const CHAT_STREAM_STALL_TIMEOUT_MS = 20_000
+
 function showMissingSecretKeyError(context: string) {
   const title = "Missing API Key"
   const message = `Your secretKey is not configured. ${context}`
@@ -26,19 +30,23 @@ function getConfiguredApiBase() {
  * Given a query and candidate documents, return the most similar documents.
  */
 export async function similaritySearch(queryText: string, docs: Document[], obj: { key: string }) {
+  Meet.debug("openai:similaritySearch:start", {
+    queryLength: queryText.length,
+    docCount: docs.length,
+    key: obj.key
+  })
   const storage = Meet.Global.storage = Meet.Global.storage || new LocalStorage(config.addonRef)
   await storage.lock.promise;
   const embeddings = new OpenAIEmbeddings() as any
   const id = MD5(docs.map((i: any) => i.pageContent).join("\n\n")).toString()
-  await storage.lock
   const _vv = storage.get(obj, id)
   ztoolkit.log(_vv)
   let vv: any
   if (_vv) {
-    Meet.Global.popupWin.createLine({ text: "Reading embeddings...", type: "default" })
+    Meet.progress({ text: "Reading embeddings...", type: "default" })
     vv = _vv
   } else {
-    Meet.Global.popupWin.createLine({ text: "Generating embeddings...", type: "default" })
+    Meet.progress({ text: "Generating embeddings...", type: "default" })
     vv = await embeddings.embedDocuments(docs.map((i: any) => i.pageContent))
     if (!vv) {
       return []
@@ -53,13 +61,18 @@ export async function similaritySearch(queryText: string, docs: Document[], obj:
     return []
   }
   const relatedNumber = Zotero.Prefs.get(`${config.addonRef}.relatedNumber`) as number
-  Meet.Global.popupWin.createLine({ text: `Searching ${relatedNumber} related content...`, type: "default" })
+  Meet.progress({ text: `Searching ${relatedNumber} related content...`, type: "default" })
   const k = relatedNumber * 5
   const pp = vv.map((v: any) => similarity(v0, v));
   docs = [...pp].sort((a, b) => b - a).slice(0, k).map((p: number) => {
     return docs[pp.indexOf(p)]
   })
-  return docs.sort((a, b) => b.pageContent.length - a.pageContent.length).slice(0, relatedNumber)
+  const result = docs.sort((a, b) => b.pageContent.length - a.pageContent.length).slice(0, relatedNumber)
+  Meet.debug("openai:similaritySearch:done", {
+    resultCount: result.length,
+    relatedNumber
+  })
+  return result
 }
 
 class OpenAIEmbeddings {
@@ -67,7 +80,7 @@ class OpenAIEmbeddings {
     const views = Zotero.ZoteroGPT.views as Views
     const api = getConfiguredApiBase()
     const secretKey = Zotero.Prefs.get(`${config.addonRef}.secretKey`)
-    const splitLen = Zotero.Prefs.get(`${config.addonRef}.embeddingBatchNum`)
+    const splitLen = Number(Zotero.Prefs.get(`${config.addonRef}.embeddingBatchNum`) || 10)
     const url = `${api}/v1/embeddings`
 
     if (!secretKey) {
@@ -85,6 +98,7 @@ class OpenAIEmbeddings {
           url,
           {
             responseType: "json",
+            timeout: EMBEDDING_REQUEST_TIMEOUT_MS,
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${secretKey}`,
@@ -126,6 +140,7 @@ class OpenAIEmbeddings {
 }
 
 export async function getGPTResponse(requestText: string) {
+  Meet.debug("openai:getGPTResponse:start", { requestLength: requestText.length })
   const secretKey = Zotero.Prefs.get(`${config.addonRef}.secretKey`)
   if (!secretKey) {
     showMissingSecretKeyError("Requests are never sent to third-party fallback endpoints.")
@@ -143,6 +158,12 @@ export async function getGPTResponseByOpenAI(requestText: string) {
   const temperature = Zotero.Prefs.get(`${config.addonRef}.temperature`)
   const api = getConfiguredApiBase()
   const model = Zotero.Prefs.get(`${config.addonRef}.model`)
+  Meet.debug("openai:getGPTResponseByOpenAI:start", {
+    requestLength: requestText.length,
+    model,
+    api,
+    chatNumber: Zotero.Prefs.get(`${config.addonRef}.chatNumber`)
+  })
   views.messages.push({
     role: "user",
     content: requestText
@@ -153,12 +174,12 @@ export async function getGPTResponseByOpenAI(requestText: string) {
   views.stopAlloutput()
   views.setText("")
   let responseText: string | undefined
-  const id: number = window.setInterval(async () => {
-    if (!responseText && _textArr.length == textArr.length) { return}
+  const id: number = window.setInterval(() => {
+    if (responseText === undefined && _textArr.length == textArr.length) { return }
     _textArr = textArr.slice(0, _textArr.length + 1)
     let text = _textArr.join("")
     text.length > 0 && views.setText(text)
-    if (responseText && responseText == text) {
+    if (responseText !== undefined && responseText == text) {
       views.setText(text, true)
       window.clearInterval(id)
     }
@@ -170,10 +191,16 @@ export async function getGPTResponseByOpenAI(requestText: string) {
   const chatNumber = Zotero.Prefs.get(`${config.addonRef}.chatNumber`) as number
   const url = `${api}/v1/chat/completions`
   try {
+    Meet.debug("openai:chat:request:start", {
+      url,
+      requestLength: requestText.length,
+      messageCount: views.messages.slice(-chatNumber).length
+    })
     await Zotero.HTTP.request(
       "POST",
       url,
       {
+        timeout: CHAT_REQUEST_TIMEOUT_MS,
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${secretKey}`,
@@ -186,26 +213,64 @@ export async function getGPTResponseByOpenAI(requestText: string) {
         }),
         responseType: "text",
         requestObserver: (xmlhttp: XMLHttpRequest) => {
+          Meet.debug("openai:chat:requestObserver", { timeout: CHAT_REQUEST_TIMEOUT_MS })
+          xmlhttp.timeout = CHAT_REQUEST_TIMEOUT_MS
+          let stallTimer: number | undefined
+          let progressEvents = 0
+          const clearStallTimer = () => {
+            if (stallTimer !== undefined) {
+              window.clearTimeout(stallTimer)
+              stallTimer = undefined
+            }
+          }
+          const resetStallTimer = () => {
+            clearStallTimer()
+            stallTimer = window.setTimeout(() => {
+              try {
+                xmlhttp.abort()
+              } catch {}
+            }, CHAT_STREAM_STALL_TIMEOUT_MS)
+          }
+          xmlhttp.addEventListener("loadend", clearStallTimer, { once: true })
+          xmlhttp.addEventListener("abort", clearStallTimer, { once: true })
+          xmlhttp.addEventListener("error", clearStallTimer, { once: true })
+          xmlhttp.addEventListener("timeout", clearStallTimer, { once: true })
+          resetStallTimer()
           xmlhttp.onprogress = (e: any) => {
+            resetStallTimer()
             try {
-              textArr = e.target.response.match(/data: (.+)/g).filter((s: string) => s.indexOf("content") >= 0).map((s: string) => {
+              const chunks = e.target.response.match(/data: (.+)/g) || []
+              textArr = chunks.filter((s: string) => s.indexOf("content") >= 0).map((s: string) => {
                 try {
                   return JSON.parse(s.replace("data: ", "")).choices[0].delta.content.replace(/\n+/g, "\n")
                 } catch {
                   return false
                 }
               }).filter(Boolean)
+              progressEvents += 1
+              if (progressEvents <= 5) {
+                Meet.debug("openai:chat:onprogress", {
+                  progressEvents,
+                  responseLength: e.target.response?.length || 0,
+                  chunkCount: textArr.length
+                })
+              }
             } catch {
               ztoolkit.log(e.target.response)
-            }
-            if (e.target.timeout) {
-              e.target.timeout = 0;
             }
           };
         },
       }
     );
+    Meet.debug("openai:chat:request:done", {
+      responseLength: textArr.join("").length,
+      chunkCount: textArr.length
+    })
   } catch (error: any) {
+    Meet.debug("openai:chat:request:error", {
+      message: error?.message,
+      stack: error?.stack
+    })
     try {
       error = JSON.parse(error?.xmlhttp?.response).error
       textArr = [`# ${error.code}\n> ${url}\n\n**${error.type}**\n${error.message}`]
@@ -213,13 +278,22 @@ export async function getGPTResponseByOpenAI(requestText: string) {
         .createLine({ text: error.message, type: "default" })
         .show()
     } catch {
+      const message = /abort/i.test(error?.message || "")
+        ? "The response stream stalled and was aborted before completion."
+        : (error?.message || "The request did not complete.")
+      textArr = [`## Request Failed\n\n${message}`]
       new ztoolkit.ProgressWindow("Error", { closeOtherProgressWindows: true })
-        .createLine({ text: error.message, type: "default" })
+        .createLine({ text: message, type: "default" })
         .show()
     }
   }
   responseText = textArr.join("")
-  ztoolkit.log("responseText", responseText)
+  if (!responseText.trim()) {
+    responseText = "## Empty Response\n\nThe configured API endpoint finished without returning any assistant text."
+  }
+  Meet.debug("openai:getGPTResponseByOpenAI:done", {
+    responseLength: responseText.length
+  })
   views.messages.push({
     role: "assistant",
     content: responseText

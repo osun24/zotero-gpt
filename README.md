@@ -29,6 +29,8 @@ You need:
 - an API key for an OpenAI-compatible model provider
 - an API endpoint URL, such as `https://api.openai.com`
 
+For development and compatibility testing, use a Zotero 8 beta build. This project is being updated to support Zotero 8 while keeping Zotero 7 compatibility where practical.
+
 ## Install
 
 ### Option 1: Download a Release
@@ -49,7 +51,52 @@ npm install
 npm run build
 ```
 
-After building, install the generated `.xpi` file in Zotero using the same steps above.
+Build output:
+
+- Production package: `builds/zotero-gpt.xpi`
+- Expanded addon files: `builds/addon/`
+
+After building, install `builds/zotero-gpt.xpi` in Zotero using the same steps above.
+
+### Development Build and Local Zotero Launch
+
+The repository also includes helper scripts for rebuilding the addon and launching Zotero locally.
+
+1. Copy `scripts/zotero-cmd-default.json` to `scripts/zotero-cmd.json`.
+2. Edit `scripts/zotero-cmd.json` and set the Zotero executable path for your installed Zotero version.
+3. Run one of the following commands:
+
+```bash
+# Development bundle
+npm run build-dev
+
+# Production bundle
+npm run build-prod
+
+# Build production bundle and run TypeScript checks
+npm run build
+
+# Launch Zotero using the configured executable
+npm run start
+
+# Launch Zotero 6 or Zotero 7 explicitly
+npm run start-z6
+npm run start-z7
+
+# Stop Zotero
+npm run stop
+
+# Rebuild and relaunch during development
+npm run restart-dev
+npm run restart-prod
+```
+
+Notes:
+
+- `npm run build-dev` and `npm run build-prod` both package the addon into `builds/zotero-gpt.xpi`.
+- `npm run build` runs the production build and `tsc --noEmit` concurrently.
+- `npm run start` / `start-z6` / `start-z7` depend on `scripts/zotero-cmd.json` and start Zotero with `--debugger --purgecaches`.
+- `npm run restart-dev` is the default `npm run restart` target.
 
 ## First-Time Setup
 
@@ -127,6 +174,7 @@ Supported placeholders:
 
 - `{{input}}`
 - `{{pdf_selection}}`
+- `{{full_pdf_text}}`
 - `{{clipboard}}`
 - `{{selected_item_json}}`
 - `{{selected_item_field:abstractNote}}`
@@ -140,7 +188,7 @@ Example tag:
 #AskPDF[position=10][color=#0EA293][trigger=/(paper|article|this paper)/i]
 You are a helpful assistant. Context information is below.
 
-{{related_text}}
+{{full_pdf_text}}
 
 Answer the question: {{input}}
 ```
@@ -161,7 +209,7 @@ You can type these commands directly into the input box:
 - `/model gpt-4` sets the model name
 - `/temperature 1.0` sets the sampling temperature
 - `/chatNumber 3` sets how many previous messages are kept
-- `/relatedNumber 5` sets how many related passages are used
+- `/relatedNumber 5` sets how many related passages are used by `{{related_text}}` and automatic PDF retrieval
 - `/deltaTime 100` controls streaming speed in milliseconds
 - `/width 32%` changes the window width
 - `/tagsMore expand` changes tag display mode
@@ -207,3 +255,4 @@ Older JavaScript-based tags were intentionally removed for safety. Rewrite them 
 - This plugin does not use the OS keychain for API key storage.
 - Legacy programmable tags are no longer supported.
 - Some older example tag files in the repository may need updating if you are using them manually.
+- Zotero 8 support in this branch is intended for install, startup, and basic use first, not full certification of every legacy workflow.

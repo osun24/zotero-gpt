@@ -1,28 +1,8 @@
-#🪐AskPDF[pos=0][color=#009FBD]
-
+#🪐AskPDF[color=#0EA293][position=10][trigger=/(paper|article|this paper)/i]
 You are a helpful assistant. Context information is below.
 
----
-```js
-window.gptInputString = Zotero.ZoteroGPT.views.inputContainer.querySelector("input").value
-Zotero.ZoteroGPT.views.messages = [];
+{{full_pdf_text}}
 
-Zotero.ZoteroGPT.utils.getRelatedText(
-window.gptInputString 
-)
+Using the provided context information, write a comprehensive reply to the given query. Use the full paper text as the primary source of truth. Use prior knowledge only if the paper text does not provide enough information.
 
-```
----
-
-Current date:   
-```js
-String(new Date())
-```
-Using the provided context information, write a comprehensive reply to the given query. Make sure to cite results using [number] notation after the reference. If the provided context information refer to multiple subjects with the same name, write separate answers for each subject. Use prior knowledge only if the given context didn't provide enough information. 
-
-Answer the question:
-```js
-window.gptInputString 
-```
-
-Reply in Simplified Chinese
+Answer the question: {{input}}

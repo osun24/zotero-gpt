@@ -80,6 +80,15 @@ function dateFormat(fmt, date) {
   return fmt;
 }
 
+function cleanupManifest(manifestPath) {
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+  const zoteroApp = manifest?.applications?.zotero;
+  if (zoteroApp && !zoteroApp.update_url) {
+    delete zoteroApp.update_url;
+  }
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+}
+
 async function main() {
   const t = new Date();
   const buildTime = dateFormat("YYYY-mm-dd HH:MM:SS", t);
@@ -102,6 +111,9 @@ async function main() {
   await esbuild
     .build({
       entryPoints: ["src/index.ts"],
+      alias: {
+        punycode: path.resolve(__dirname, "../src/vendor/punycode.ts"),
+      },
       define: {
         __env__: `"${process.env.NODE_ENV}"`,
       },
@@ -166,6 +178,8 @@ async function main() {
       (f) => `${f.file} : ${f.numReplacements} / ${f.numMatches}`
     )
   );
+
+  cleanupManifest(path.join(buildDir, "addon/manifest.json"));
 
   console.log("[Build] Replace OK");
 

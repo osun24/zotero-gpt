@@ -10,6 +10,17 @@ if (typeof Zotero == "undefined") {
 }
 
 var chromeHandle;
+var Services = globalThis.Services;
+
+if (!Services) {
+  if (ChromeUtils.importESModule) {
+    Services = ChromeUtils.importESModule(
+      "resource://gre/modules/Services.sys.mjs"
+    ).Services;
+  } else {
+    Services = ChromeUtils.import("resource://gre/modules/Services.jsm").Services;
+  }
+}
 
 // In Zotero 6, bootstrap methods are called before Zotero is initialized, and using include.js
 // to get the Zotero XPCOM service would risk breaking Zotero startup. Instead, wait for the main
@@ -22,7 +33,6 @@ async function waitForZotero() {
     await Zotero.initializationPromise;
   }
 
-  var { Services } = ChromeUtils.import("resource://gre/modules/Services.jsm");
   var windows = Services.wm.getEnumerator("navigator:browser");
   var found = false;
   while (windows.hasMoreElements()) {
@@ -40,7 +50,7 @@ async function waitForZotero() {
           // Wait for the window to finish loading
           let domWindow = aWindow
             .QueryInterface(Ci.nsIInterfaceRequestor)
-            .getInterface(Ci.nsIDOMWindowInternal || Ci.nsIDOMWindow);
+            .getInterface(Ci.nsIDOMWindow);
           domWindow.addEventListener(
             "load",
             function () {

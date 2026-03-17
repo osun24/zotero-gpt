@@ -2,7 +2,7 @@ import { config } from "../../package.json";
 import Meet from "./Meet/api"
 import Utils from "./utils";
 import { Document } from "langchain/document";
-import { help, fontFamily, defaultTags, parseTag } from "./base"
+import { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames } from "./base"
 const markdown = require("markdown-it")({
   breaks: true, // Convert line breaks into <br> tags
   xhtmlOut: true, // Use /> closing style instead of >
@@ -27,6 +27,7 @@ export default class Views {
   private outputContainer!: HTMLDivElement;
   private dotsContainer!: HTMLDivElement;
   private tagsContainer!: HTMLDivElement;
+  private resizeHandle!: HTMLDivElement;
   private utils: Utils;
   constructor() {
     this.utils = new Utils()
@@ -76,6 +77,10 @@ export default class Views {
           #output-container * {
             font-family: ${fontFamily} !important;
           }
+          #output-container, #output-container * {
+            user-select: text;
+            -moz-user-select: text;
+          }
           #output-container div p, #output-container div span {
             marigin: 0;
             padding: 0;
@@ -109,6 +114,35 @@ export default class Views {
               height: 500px;
               opacity: 0;
             }
+          }
+          #${this.id} .resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 18px;
+            height: 18px;
+            cursor: nwse-resize;
+            opacity: 0.45;
+            transition: opacity .2s linear;
+          }
+          #${this.id} .resize-handle:hover {
+            opacity: 0.8;
+          }
+          #${this.id} .resize-handle:before,
+          #${this.id} .resize-handle:after {
+            content: "";
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            width: 9px;
+            height: 1.5px;
+            background: rgba(55, 65, 81, 0.5);
+            transform-origin: right center;
+            transform: rotate(-45deg);
+          }
+          #${this.id} .resize-handle:before {
+            right: 7px;
+            bottom: 7px;
           }
         `
       },
@@ -207,11 +241,139 @@ export default class Views {
   }
 
   private showError(title: string, message: string) {
+    Meet.debug("views:showError", { title, message })
     this.dotsContainer?.classList.remove("loading")
     this.setText(`## ${title}\n\n${message}`, true, false)
     new ztoolkit.ProgressWindow(title, { closeOtherProgressWindows: true })
       .createLine({ text: message, type: "default" })
       .show()
+  }
+
+  private logDebug(stage: string, details?: any) {
+    Meet.debug(`views:${stage}`, details ?? "")
+  }
+
+  private safePopupLine(popupWin: any, stage: string, options: { text: string; type?: string; progress?: number; idx?: number }) {
+    if (!popupWin?.createLine) {
+      this.logDebug(`${stage}:skip`, {
+        hasPopupWin: !!popupWin,
+        hasCreateLine: !!popupWin?.createLine,
+        text: options.text
+      })
+      return
+    }
+    try {
+      this.logDebug(`${stage}:createLine`, {
+        text: options.text,
+        type: options.type,
+        progress: options.progress
+      })
+      popupWin.createLine(options)
+    } catch (error: any) {
+      this.logDebug(`${stage}:createLine:error`, {
+        text: options.text,
+        message: error?.message,
+        stack: error?.stack
+      })
+    }
+  }
+
+  private safeStartCloseTimer(popupWin: any, stage: string, delay: number) {
+    if (!popupWin?.startCloseTimer) {
+      this.logDebug(`${stage}:startCloseTimer:skip`, {
+        hasPopupWin: !!popupWin,
+        hasStartCloseTimer: !!popupWin?.startCloseTimer,
+        delay
+      })
+      return
+    }
+    try {
+      this.logDebug(`${stage}:startCloseTimer`, { delay })
+      popupWin.startCloseTimer(delay)
+    } catch (error: any) {
+      this.logDebug(`${stage}:startCloseTimer:error`, {
+        delay,
+        message: error?.message,
+        stack: error?.stack
+      })
+    }
+  }
+
+  private getSelectedOutputText() {
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed) {
+      return ""
+    }
+    const anchorNode = selection.anchorNode
+    const focusNode = selection.focusNode
+    if (!anchorNode || !focusNode) {
+      return ""
+    }
+    if (!this.outputContainer?.contains(anchorNode) && !this.outputContainer?.contains(focusNode)) {
+      return ""
+    }
+    return selection.toString()
+  }
+
+  private copyTextToClipboard(text: string) {
+    if (!text.length) {
+      return false
+    }
+    try {
+      new ztoolkit.Clipboard()
+        .addText(text, "text/unicode")
+        .copy()
+      this.logDebug("copyTextToClipboard:success", { textLength: text.length })
+      return true
+    } catch (error: any) {
+      this.logDebug("copyTextToClipboard:error", {
+        message: error?.message,
+        stack: error?.stack
+      })
+      return false
+    }
+  }
+
+  private clampToViewport(x: number, y: number) {
+    const maxX = Math.max(0, window.innerWidth - this.container.offsetWidth)
+    const maxY = Math.max(0, window.innerHeight - this.container.offsetHeight)
+    return {
+      x: Math.min(Math.max(0, x), maxX),
+      y: Math.min(Math.max(0, y), maxY),
+    }
+  }
+
+  private getStoredContainerSize() {
+    const width = Zotero.Prefs.get(`${config.addonRef}.windowWidth`) as string
+    const height = Zotero.Prefs.get(`${config.addonRef}.windowHeight`) as string
+    return {
+      width: /^\d+px$/.test(width || "") ? width : "",
+      height: /^\d+px$/.test(height || "") ? height : "",
+    }
+  }
+
+  private saveContainerSize(width: number, height: number) {
+    Zotero.Prefs.set(`${config.addonRef}.windowWidth`, `${Math.round(width)}px`)
+    Zotero.Prefs.set(`${config.addonRef}.windowHeight`, `${Math.round(height)}px`)
+  }
+
+  private clampContainerSize(width: number, height: number, left: number, top: number) {
+    const minWidth = 360
+    const minHeight = 180
+    const maxWidth = Math.max(minWidth, window.innerWidth - left)
+    const maxHeight = Math.max(minHeight, window.innerHeight - top)
+    return {
+      width: Math.min(Math.max(minWidth, width), maxWidth),
+      height: Math.min(Math.max(minHeight, height), maxHeight),
+    }
+  }
+
+  private applyContainerSize(width: number, height: number) {
+    const left = this.container.offsetLeft
+    const top = this.container.offsetTop
+    const clamped = this.clampContainerSize(width, height, left, top)
+    this.container.style.width = `${Math.round(clamped.width)}px`
+    this.container.style.height = `${Math.round(clamped.height)}px`
   }
 
   private parseTrigger(trigger: string) {
@@ -237,6 +399,8 @@ export default class Views {
         return Meet.Global.input || ""
       case "pdf_selection":
         return Meet.Zotero.getPDFSelection()
+      case "full_pdf_text":
+        return await Meet.Zotero.getFullPDFText()
       case "clipboard":
         return Meet.Zotero.getClipboardText()
       case "selected_item_json": {
@@ -261,49 +425,205 @@ export default class Views {
     }
   }
 
-  private async resolvePlaceholders(text: string) {
+  private isSupportedPlaceholder(name: string) {
+    return [
+      "input",
+      "pdf_selection",
+      "full_pdf_text",
+      "clipboard",
+      "selected_item_json",
+      "pdf_annotations",
+      "selected_pdf_annotations",
+      "related_text"
+    ].includes(name) || (
+      name.startsWith("selected_item_field:") &&
+      /^[A-Za-z][A-Za-z0-9_]*$/.test(name.slice("selected_item_field:".length))
+    )
+  }
+
+  private getPlaceholderMatches(text: string) {
+    return [...text.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)]
+  }
+
+  private async resolvePlaceholders(text: string, strict: boolean = true) {
     if (/\$\{[\s\S]+?\}/.test(text) || /```j(?:ava)?s(?:cript)?/i.test(text)) {
       throw new Error("Legacy JavaScript tag syntax is no longer supported. Use safe placeholders like {{input}} or {{pdf_selection}}.")
     }
-    const placeholders = [...text.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)]
+    const placeholders = this.getPlaceholderMatches(text)
     for (const match of placeholders) {
       const rawString = match[0]
       const placeholder = match[1]
+      if (!this.isSupportedPlaceholder(placeholder)) {
+        if (strict) {
+          throw new Error(`Unsupported placeholder: {{${placeholder}}}`)
+        }
+        continue
+      }
       text = text.replace(rawString, await this.resolvePlaceholder(placeholder))
     }
     return text
+  }
+
+  private async addAutomaticContext(
+    text: string,
+    placeholders: string[] = this.getPlaceholderMatches(text).map(match => match[1])
+  ) {
+    const hasExplicitPdfContextPlaceholder = placeholders.some((name) => [
+      "pdf_selection",
+      "full_pdf_text",
+      "related_text",
+      "pdf_annotations",
+      "selected_pdf_annotations"
+    ].includes(name))
+    const blocks: string[] = []
+    const selectedText = Meet.Zotero.getPDFSelection().trim()
+    const shouldRequestFullPdfContext = /\b(this paper|this article|paper|article|study|document|manuscript)\b/i.test(text)
+    this.logDebug("addAutomaticContext:start", {
+      textLength: text.length,
+      hasExplicitPdfContextPlaceholder,
+      selectedTextLength: selectedText.length,
+      hasOpenPDF: Meet.Zotero.hasOpenPDF(),
+      shouldRequestFullPdfContext
+    })
+
+    if (selectedText.length > 0 && !hasExplicitPdfContextPlaceholder) {
+      blocks.push(`Selected text:\n${selectedText}`)
+    }
+
+    if (Meet.Zotero.hasOpenPDF() && !hasExplicitPdfContextPlaceholder) {
+      this.logDebug("addAutomaticContext:relatedText:start", {
+        inputLength: (Meet.Global.input || "").length,
+        shouldRequestFullPdfContext
+      })
+      const relatedText = shouldRequestFullPdfContext
+        ? (await Meet.Zotero.getRelatedText(Meet.Global.input || "", {
+          insertAuxiliary: false,
+          cachedOnly: false
+        })).trim()
+        : (
+          await Promise.race<string>([
+            Meet.Zotero.getRelatedText(Meet.Global.input || "", {
+              insertAuxiliary: false,
+              cachedOnly: true
+            }),
+            new Promise((resolve) => {
+              window.setTimeout(() => resolve(""), 1500)
+            })
+          ])
+        ).trim()
+      this.logDebug("addAutomaticContext:relatedText:done", {
+        relatedTextLength: relatedText.length
+      })
+      if (relatedText.length > 0) {
+        blocks.push(`Context from the open PDF:\n${relatedText}`)
+      }
+    }
+
+    if (blocks.length == 0) {
+      this.logDebug("addAutomaticContext:done", { blockCount: 0, resultLength: text.length })
+      return text
+    }
+
+    const result = `Context information is below.\n\n${blocks.join("\n\n")}\n\nUsing the provided context information, answer the user's question.\n\nQuestion: ${text}`
+    this.logDebug("addAutomaticContext:done", { blockCount: blocks.length, resultLength: result.length })
+    return result
+  }
+
+  private isLegacyTagText(text: string) {
+    return (
+      /\$\{[\s\S]+?\}/.test(text) ||
+      /```j(?:ava)?s(?:cript)?/i.test(text) ||
+      /\bwindow\.gptInputString\b/.test(text) ||
+      /\bZotero\.ZoteroGPT\b/.test(text)
+    )
+  }
+
+  private rebuildDefaultTag(defaultTag: Tag, currentTag: Tag) {
+    const body = defaultTag.text.replace(/^#.+\n/, "")
+    const position = typeof currentTag.position == "number" ? currentTag.position : defaultTag.position
+    const color = currentTag.color || defaultTag.color
+    const trigger = currentTag.trigger?.length ? currentTag.trigger : defaultTag.trigger
+    return parseTag(`#${defaultTag.tag}[position=${position}][color=${color}][trigger=${trigger}]\n${body}`)
+  }
+
+  private normalizeTags(tags: Tag[]) {
+    let changed = false
+    const activeTags = tags.filter((tag: Tag) => {
+      if (!retiredDefaultTagNames.includes(tag.tag)) {
+        return true
+      }
+      changed = true
+      this.logDebug("getTags:removeRetiredDefaultTag", { tag: tag.tag })
+      return false
+    })
+    const normalizedTags = activeTags.map((tag) => {
+      const defaultTag = defaultTags.find((candidate: Tag) => candidate.tag == tag.tag)
+      if (!defaultTag) {
+        return tag
+      }
+      const shouldMigrateLegacyText = this.isLegacyTagText(tag.text || "")
+      const shouldRestoreTrigger = !tag.trigger?.length && !!defaultTag.trigger?.length
+      const shouldSyncDefaultText = tag.tag == "🪐AskPDF" && tag.text != this.rebuildDefaultTag(defaultTag, tag).text
+      if (!shouldMigrateLegacyText && !shouldRestoreTrigger && !shouldSyncDefaultText) {
+        return tag
+      }
+      changed = true
+      const migratedTag = this.rebuildDefaultTag(defaultTag, tag)
+      this.logDebug("getTags:migrateDefaultTag", {
+        tag: tag.tag,
+        shouldMigrateLegacyText,
+        shouldRestoreTrigger,
+        shouldSyncDefaultText
+      })
+      return migratedTag
+    })
+    for (let defaultTag of defaultTags) {
+      if (!normalizedTags.find((tag: Tag) => tag.tag == defaultTag.tag)) {
+        normalizedTags.push(defaultTag)
+        changed = true
+      }
+    }
+    return { tags: normalizedTags, changed }
   }
 
   /**
    * Generated drag handler
    */
   private addDragEvent(node: HTMLDivElement) {
-    let posX: number, posY: number
-    let currentX: number, currentY: number
+    let offsetX = 0
+    let offsetY = 0
     let isDragging: boolean = false
 
-    function handleMouseDown(event: MouseEvent) {
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
       // Skip drag logic for input, textarea, and tag elements
       if (
         event.target instanceof window.HTMLInputElement ||
         event.target instanceof window.HTMLTextAreaElement ||
-        (event.target as HTMLDivElement).classList.contains("tag")
+        (event.target as HTMLDivElement).classList.contains("tag") ||
+        target.closest("#output-container")
       ) {
         return
       }
-      posX = node.offsetLeft - event.clientX
-      posY = node.offsetTop - event.clientY
+      const rect = node.getBoundingClientRect()
+      offsetX = event.clientX - rect.left
+      offsetY = event.clientY - rect.top
       isDragging = true
+      event.preventDefault()
     }
 
-    function handleMouseUp(event: MouseEvent) {
+    const handleMouseUp = () => {
       isDragging = false
     }
 
-    function handleMouseMove(event: MouseEvent) {
+    const handleMouseMove = (event: MouseEvent) => {
       if (isDragging) {
-        currentX = event.clientX + posX
-        currentY = event.clientY + posY
+        let currentX = event.clientX - offsetX
+        let currentY = event.clientY - offsetY
+        const maxX = Math.max(0, window.innerWidth - node.offsetWidth)
+        const maxY = Math.max(0, window.innerHeight - node.offsetHeight)
+        currentX = Math.min(Math.max(0, currentX), maxX)
+        currentY = Math.min(Math.max(0, currentY), maxY)
         node.style.left = currentX + "px"
         node.style.top = currentY + "px"
       }
@@ -311,8 +631,47 @@ export default class Views {
 
     // Add event listeners
     node.addEventListener("mousedown", handleMouseDown)
-    node.addEventListener("mouseup", handleMouseUp)
-    node.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
+    document.addEventListener("mousemove", handleMouseMove)
+  }
+
+  private addResizeEvent(node: HTMLDivElement, handle: HTMLDivElement) {
+    let startWidth = 0
+    let startHeight = 0
+    let startX = 0
+    let startY = 0
+    let isResizing = false
+
+    const handleMouseDown = (event: MouseEvent) => {
+      isResizing = true
+      startWidth = node.offsetWidth
+      startHeight = node.offsetHeight
+      startX = event.clientX
+      startY = event.clientY
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!isResizing) {
+        return
+      }
+      const width = startWidth + (event.clientX - startX)
+      const height = startHeight + (event.clientY - startY)
+      this.applyContainerSize(width, height)
+    }
+
+    const handleMouseUp = () => {
+      if (!isResizing) {
+        return
+      }
+      isResizing = false
+      this.saveContainerSize(node.offsetWidth, node.offsetHeight)
+    }
+
+    handle.addEventListener("mousedown", handleMouseDown)
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
   }
 
 
@@ -434,6 +793,7 @@ export default class Views {
   }
 
   private buildContainer() {
+    const storedSize = this.getStoredContainerSize()
     // Root container
     const container = ztoolkit.UI.createElement(document, "div", {
       id: this.id,
@@ -443,8 +803,12 @@ export default class Views {
         justifyContent: "flex-start",
         alignItems: "center",
         position: "fixed",
-        width: Zotero.Prefs.get(`${config.addonRef}.width`) as string,
-        // height: "4em",
+        width: storedSize.width || Zotero.Prefs.get(`${config.addonRef}.width`) as string,
+        height: storedSize.height || "auto",
+        minWidth: "360px",
+        minHeight: "180px",
+        maxWidth: "calc(100vw - 8px)",
+        maxHeight: "calc(100vh - 8px)",
         fontSize: "18px",
         borderRadius: "10px",
         backgroundColor: "#fff",
@@ -452,6 +816,7 @@ export default class Views {
                     0px 6.3px 24.7px rgba(0, 0, 0, 0.112),
                     0px 30px 90px rgba(0, 0, 0, 0.2)`,
         fontFamily: fontFamily,
+        overflow: "hidden",
       }
     })
     this.addDragEvent(container)
@@ -621,7 +986,9 @@ export default class Views {
                   ztoolkit.log("width", value.match(/^[\d\.]+%$/))
                   if (value.match(/^[\d\.]+%$/)) {
                     that.container.style.width = value
+                    that.container.style.height = that.container.style.height || "auto"
                     Zotero.Prefs.set(`${config.addonRef}.${key}`, value)
+                    Zotero.Prefs.clear(`${config.addonRef}.windowWidth`)
                     break;
                   } else {
                     ztoolkit.log("width Error")
@@ -699,7 +1066,8 @@ export default class Views {
         width: "calc(100% - 1em)",
         backgroundColor: "rgba(89, 192, 188, .08)",
         color: "#374151",
-        maxHeight: document.documentElement.getBoundingClientRect().height * .5 + "px",
+        flex: "1 1 auto",
+        minHeight: "4em",
         overflowY: "auto",
         overflowX: "hidden",
         padding: "0.25em 0.5em",
@@ -713,6 +1081,7 @@ export default class Views {
           styles: {
             fontSize: "0.8em",
             lineHeight: "2em",
+            userSelect: "text",
             // margin: ".5em 0"
           },
           properties: {
@@ -720,23 +1089,25 @@ export default class Views {
             pureText: ""
           }
         }
-      ],
-      listeners: [
-        {
-          type: "dblclick",
-          listener: () => {
-            const text = outputContainer.querySelector("[pureText]")!.getAttribute("pureText") || ""
-            new ztoolkit.Clipboard()
-              .addText(text, "text/unicode")
-              .copy()
-            new ztoolkit.ProgressWindow(config.addonName)
-              .createLine({ text: "Copy Plain Text", type: "success" })
-              .show()
-          }
-        }
       ]
     }, container) as HTMLDivElement
     this.bindCtrlScrollZoomOutput(outputContainer)
+    outputContainer.addEventListener("copy", (event: ClipboardEvent) => {
+      const selectedText = this.getSelectedOutputText()
+      if (!selectedText.length) {
+        return
+      }
+      try {
+        event.clipboardData?.setData("text/plain", selectedText)
+        event.preventDefault()
+        this.logDebug("output:copy:event", { textLength: selectedText.length })
+      } catch (error: any) {
+        this.logDebug("output:copy:event:error", {
+          message: error?.message,
+          stack: error?.stack
+        })
+      }
+    })
     // Command tags
     const tagsMore = Zotero.Prefs.get(`${config.addonRef}.tagsMore`) as string
     const tagsContainer = this.tagsContainer = ztoolkit.UI.appendElement({
@@ -812,6 +1183,14 @@ export default class Views {
         }
       ]
     }, container) as HTMLDivElement
+    this.resizeHandle = ztoolkit.UI.appendElement({
+      tag: "div",
+      classList: ["resize-handle"],
+      properties: {
+        title: "Resize window"
+      }
+    }, container) as HTMLDivElement
+    this.addResizeEvent(container, this.resizeHandle)
     document.documentElement.append(container)
     this.renderTags()
     // Focus
@@ -913,13 +1292,21 @@ export default class Views {
    * Execute a tag
    */
   private async execTag(tag: Tag) {
+    this.logDebug("execTag:start", {
+      tag: tag.tag,
+      inputLength: (this.inputContainer.querySelector("input")?.value || "").length
+    })
     Meet.Global.input = this.inputContainer.querySelector("input")?.value as string
     this._tag = tag
+    const previousPopupWin = Meet.Global.popupWin
     const popunWin = new ztoolkit.ProgressWindow(tag.tag, { closeTime: -1, closeOtherProgressWindows: true })
       .show()
+    this.logDebug("execTag:popup:show", {
+      hasPopupWin: !!popunWin,
+      hasCreateLine: !!(popunWin as any)?.createLine
+    })
     Meet.Global.popupWin = popunWin
-    popunWin
-      .createLine({ text: "Generating input content...", type: "default" })
+    this.safePopupLine(popunWin, "execTag:popup", { text: "Generating input content...", type: "default" })
     this.dotsContainer?.classList.add("loading")
     this.outputContainer.style.display = "none"
     ztoolkit.log(tag, this.getTags())
@@ -933,29 +1320,48 @@ export default class Views {
     outputDiv.setAttribute("pureText", "");
     let text = tag.text.replace(/^#.+\n/, "")
     try {
-      text = await this.resolvePlaceholders(text)
+      this.logDebug("execTag:resolvePlaceholders:start", { textLength: text.length })
+      text = await this.resolvePlaceholders(text, true)
+      this.logDebug("execTag:resolvePlaceholders:done", { textLength: text.length })
     } catch (error: any) {
-      popunWin.createLine({ text: error.message, type: "fail" })
-      popunWin.startCloseTimer(3000)
+      this.safePopupLine(popunWin, "execTag:popup", { text: error.message, type: "fail" })
+      this.safeStartCloseTimer(popunWin, "execTag:popup", 3000)
       this.showError("Unsafe Tag Blocked", error.message)
+      Meet.Global.popupWin = previousPopupWin
       return
     }
-    popunWin.createLine({ text: `Characters ${text.length}`, type: "success" })
-    popunWin.createLine({ text: "Answering...", type: "default" })
-    text = await Meet.OpenAI.getGPTResponse(text) as string
-    this.dotsContainer?.classList.remove("loading")
-    if (text.trim().length) {
-      popunWin.createLine({ text: "Done", type: "success" })
-    } else {
-      popunWin.createLine({ text: "Done", type: "fail" })
+    try {
+      this.safePopupLine(popunWin, "execTag:popup", { text: `Characters ${text.length}`, type: "success" })
+      this.safePopupLine(popunWin, "execTag:popup", { text: "Answering...", type: "default" })
+      this.logDebug("execTag:getGPTResponse:start", { textLength: text.length })
+      text = await Meet.OpenAI.getGPTResponse(text) as string
+      this.logDebug("execTag:getGPTResponse:done", { textLength: text.length })
+      if (text.trim().length) {
+        this.safePopupLine(popunWin, "execTag:popup", { text: "Done", type: "success" })
+      } else {
+        this.safePopupLine(popunWin, "execTag:popup", { text: "Done", type: "fail" })
+      }
+    } catch (error: any) {
+      const message = error?.message || "The request did not complete."
+      this.safePopupLine(popunWin, "execTag:popup", { text: message, type: "fail" })
+      this.showError("Request Error", message)
+    } finally {
+      this.logDebug("execTag:finally", "")
+      this.dotsContainer?.classList.remove("loading")
+      this.safeStartCloseTimer(popunWin, "execTag:popup", 3000)
+      Meet.Global.popupWin = previousPopupWin
     }
-    popunWin.startCloseTimer(3000)
   }
 
   /**
    * Execute the current input text
    */
   private async execText(text: string) {
+    this.logDebug("execText:start", {
+      textLength: text.length,
+      hasOpenPDF: Meet.Zotero.hasOpenPDF(),
+      selectedTextLength: Meet.Zotero.getPDFSelection().trim().length
+    })
     // If input matches a tag trigger, run that tag instead
     const tag = this.getTags()
       .filter((tag: Tag) => tag.trigger?.length > 0)
@@ -977,8 +1383,54 @@ export default class Views {
     outputDiv.setAttribute("pureText", "");
     if (text.trim().length == 0) { return }
     this.dotsContainer?.classList.add("loading")
-    await Meet.OpenAI.getGPTResponse(text)
-    this.dotsContainer?.classList.remove("loading")
+    const placeholderNames = this.getPlaceholderMatches(text).map(match => match[1])
+    const hasSupportedPlaceholders = placeholderNames
+      .some(name => this.isSupportedPlaceholder(name))
+    const shouldBuildContext = hasSupportedPlaceholders || Meet.Zotero.hasOpenPDF() || Meet.Zotero.getPDFSelection().trim().length > 0
+    const previousPopupWin = Meet.Global.popupWin
+    const popupWin = shouldBuildContext
+      ? new ztoolkit.ProgressWindow("Input Context", { closeTime: -1, closeOtherProgressWindows: true }).show()
+      : undefined
+    this.logDebug("execText:popup:show", {
+      shouldBuildContext,
+      hasPopupWin: !!popupWin,
+      hasCreateLine: !!(popupWin as any)?.createLine
+    })
+    if (popupWin) {
+      Meet.Global.popupWin = popupWin
+      this.safePopupLine(popupWin, "execText:popup", { text: "Generating input content...", type: "default" })
+    }
+    try {
+      this.logDebug("execText:resolvePlaceholders:start", { textLength: text.length })
+      text = await this.resolvePlaceholders(text, false)
+      this.logDebug("execText:resolvePlaceholders:done", { textLength: text.length })
+      this.logDebug("execText:addAutomaticContext:start", { textLength: text.length })
+      text = await this.addAutomaticContext(text, placeholderNames)
+      this.logDebug("execText:addAutomaticContext:done", { textLength: text.length })
+    } catch (error: any) {
+      this.safePopupLine(popupWin, "execText:popup", { text: error.message, type: "fail" })
+      this.safeStartCloseTimer(popupWin, "execText:popup", 3000)
+      this.showError("Placeholder Error", error.message)
+      Meet.Global.popupWin = previousPopupWin
+      return
+    }
+    try {
+      this.safePopupLine(popupWin, "execText:popup", { text: `Characters ${text.length}`, type: "success" })
+      this.safePopupLine(popupWin, "execText:popup", { text: "Answering...", type: "default" })
+      this.logDebug("execText:getGPTResponse:start", { textLength: text.length })
+      text = await Meet.OpenAI.getGPTResponse(text)
+      this.logDebug("execText:getGPTResponse:done", { textLength: text.length })
+      this.safePopupLine(popupWin, "execText:popup", { text: "Done", type: text.trim().length ? "success" : "fail" })
+    } catch (error: any) {
+      const message = error?.message || "The request did not complete."
+      this.safePopupLine(popupWin, "execText:popup", { text: message, type: "fail" })
+      this.showError("Request Error", message)
+    } finally {
+      this.logDebug("execText:finally", "")
+      this.dotsContainer?.classList.remove("loading")
+      this.safeStartCloseTimer(popupWin, "execText:popup", 3000)
+      Meet.Global.popupWin = previousPopupWin
+    }
   }
 
   /**
@@ -995,10 +1447,10 @@ export default class Views {
       Zotero.Prefs.set(`${config.addonRef}.tags`, tagsJson)
     }
     let tags = JSON.parse(tagsJson)
-    for (let defaultTag of defaultTags) {
-      if (!tags.find((tag: Tag) => tag.tag == defaultTag.tag)) {
-        tags.push(defaultTag)
-      }
+    const normalized = this.normalizeTags(tags)
+    tags = normalized.tags
+    if (normalized.changed) {
+      Zotero.Prefs.set(`${config.addonRef}.tags`, JSON.stringify(tags))
     }
     return (tags.length > 0 ? tags : defaultTags).sort((a: Tag, b: Tag) => a.position - b.position)
   }
@@ -1023,30 +1475,9 @@ export default class Views {
       x = rect.width / 2 - this.container.offsetWidth / 2;
       y = rect.height / 2 - this.container.offsetHeight / 2;
     }
-
-    // ensure container doesn't go off the right side of the screen
-    if (x + this.container.offsetWidth > window.innerWidth) {
-      x = window.innerWidth - this.container.offsetWidth
-    }
-
-    // ensure container doesn't go off the bottom of the screen
-    if (y + this.container.offsetHeight > window.innerHeight) {
-      y = window.innerHeight - this.container.offsetHeight
-    }
-
-    // ensure container doesn't go off the left side of the screen
-    if (x < 0) {
-      x = 0
-    }
-
-    // ensure container doesn't go off the top of the screen
-    if (y < 0) {
-      y = 0
-    }
-    // this.container.style.display = "flex"
-    this.container.style.left = `${x}px`
-    this.container.style.top = `${y}px`
-    // reBuild && (this.container.style.display = "flex")
+    const clamped = this.clampToViewport(x, y)
+    this.container.style.left = `${clamped.x}px`
+    this.container.style.top = `${clamped.y}px`
   }
 
   /**
@@ -1117,7 +1548,7 @@ export default class Views {
             }
           }
         ]
-      }, auxDiv)
+      }, auxDiv as Element)
     })
   }
 
@@ -1129,7 +1560,7 @@ export default class Views {
     items: { name: string, listener: Function }[],
     separators: number[]
   ) {
-    document.querySelector(".gpt-menu-box")?.remove()
+    (document.querySelector(".gpt-menu-box") as HTMLDivElement | null)?.remove()
     const removeNode = () => {
       document.removeEventListener("mousedown", removeNode)
       document.removeEventListener("keydown", keyDownHandler)
@@ -1187,7 +1618,7 @@ export default class Views {
               {
                 type: "mouseenter",
                 listener: function () {
-                  nodes.forEach(e => e.classList.remove("selected"))
+                  nodes.forEach((e: Element) => e.classList.remove("selected"))
                   // @ts-ignore
                   this.classList.add("selected")
                   currentIndex = i
@@ -1222,7 +1653,7 @@ export default class Views {
         }
         return arr
       })() as any
-    }, document.documentElement)
+    }, document.documentElement) as HTMLDivElement
     
     const winRect = document.documentElement.getBoundingClientRect()
     const nodeRect = menuNode.getBoundingClientRect()
@@ -1255,7 +1686,7 @@ export default class Views {
       } else if (event.code == "Escape") {
         removeNode()
       }
-      nodes.forEach(e => e.classList.remove("selected"))
+      nodes.forEach((e: Element) => e.classList.remove("selected"))
       nodes[currentIndex].classList.add("selected")
     }
     document.addEventListener("keydown", keyDownHandler)
@@ -1324,6 +1755,14 @@ export default class Views {
     document.addEventListener(
       "keydown",
       async (event: any) => {
+        if ((event.metaKey || event.ctrlKey) && event.key?.toLowerCase() == "c") {
+          const selectedText = this.getSelectedOutputText()
+          if (selectedText.length && this.copyTextToClipboard(selectedText)) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+          }
+        }
         if (
           (event.shiftKey && event.key.toLowerCase() == "?") ||
           (event.key == "/" && Zotero.isMac)) {

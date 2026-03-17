@@ -11,8 +11,12 @@ if (!basicTool.getGlobal("Zotero")[config.addonInstance]) {
   _globalThis.ZoteroPane = basicTool.getGlobal("ZoteroPane");
   _globalThis.Zotero_Tabs = basicTool.getGlobal("Zotero_Tabs");
   _globalThis.window = window = basicTool.getGlobal("window");
+  _globalThis.console = (window as any).console;
   _globalThis.URL = basicTool.getGlobal("window").URL;
-  _globalThis.setTimeout = basicTool.getGlobal("window").setTimeout;
+  _globalThis.setTimeout = window.setTimeout.bind(window);
+  _globalThis.clearTimeout = window.clearTimeout.bind(window);
+  _globalThis.setInterval = window.setInterval.bind(window);
+  _globalThis.clearInterval = window.clearInterval.bind(window);
   _globalThis.URLSearchParams = basicTool.getGlobal("window").URLSearchParams;
   _globalThis.Headers = basicTool.getGlobal("window").Headers;
   _globalThis.AbortSignal = basicTool.getGlobal("window").AbortSignal;

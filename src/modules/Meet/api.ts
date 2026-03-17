@@ -1,6 +1,10 @@
+import { config } from "../../../package.json";
 import {
   getClipboardText,
+  getCurrentPDFItem,
+  getFullPDFText,
   getItemField,
+  hasOpenPDF,
   getPDFSelection,
   getRelatedText,
   getPDFAnnotations
@@ -25,12 +29,18 @@ const Meet: {
   Zotero: {
     /** Return text from the system clipboard. */
     getClipboardText,
+    /** Return the currently open PDF item, if any. */
+    getCurrentPDFItem,
+    /** Return normalized text extracted from the currently open PDF. */
+    getFullPDFText,
     /**
      * Return a field value from the selected item.
      * If multiple items are selected, only the first item is used.
      * @fieldName The Zotero field name, for example "abstractNote"
      */
     getItemField, 
+    /** Return whether the current tab is an open PDF reader. */
+    hasOpenPDF,
     /** Return the current text selection in the PDF reader. */
     getPDFSelection,
     /**
@@ -57,6 +67,56 @@ const Meet: {
     views: undefined,
     popupWin: undefined,
     storage: undefined
+  },
+  debug(...args: any[]) {
+    const prefix = `[${config.addonRef}]`
+    const messageParts = [prefix, ...args].map((value) => {
+      if (typeof value == "string") {
+        return value
+      }
+      try {
+        return JSON.stringify(value)
+      } catch {
+        return String(value)
+      }
+    })
+    const message = messageParts.join(" ")
+    try {
+      const consoleObject =
+        (typeof window != "undefined" && (window as any).console) ||
+        (typeof Zotero != "undefined" && (Zotero.getMainWindow?.() as any)?.console) ||
+        (typeof globalThis != "undefined" && (globalThis as any).console)
+      consoleObject?.log?.(prefix, ...args)
+    } catch {}
+    try {
+      Zotero.debug(message)
+    } catch {}
+  },
+  progress(options: { text: string; type?: string; progress?: number; idx?: number }) {
+    const popupWin = Meet.Global.popupWin
+    if (!popupWin?.createLine) {
+      Meet.debug("progress:skip", {
+        hasPopupWin: !!popupWin,
+        hasCreateLine: !!popupWin?.createLine,
+        text: options.text
+      })
+      return undefined
+    }
+    try {
+      Meet.debug("progress:createLine", {
+        text: options.text,
+        type: options.type,
+        progress: options.progress
+      })
+      return popupWin.createLine(options)
+    } catch (error: any) {
+      Meet.debug("progress:createLine:error", {
+        text: options.text,
+        message: error?.message,
+        stack: error?.stack
+      })
+      return undefined
+    }
   }
 }
 

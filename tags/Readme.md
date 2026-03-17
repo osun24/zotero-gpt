@@ -10,6 +10,7 @@ Supported placeholders:
 
 - `{{input}}`
 - `{{pdf_selection}}`
+- `{{full_pdf_text}}`
 - `{{clipboard}}`
 - `{{selected_item_json}}`
 - `{{selected_item_field:abstractNote}}`
@@ -21,7 +22,7 @@ Legacy `${...}` blocks are rejected.
 
 ## About Output Text
 
-You can double click this text to copy GPT's answer.
+You can select this text directly and copy GPT's answer with the normal system copy shortcut.
 You can long press and drag the window to reposition it.
 
 ## About Input Text

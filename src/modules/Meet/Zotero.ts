@@ -24,12 +24,69 @@ export function getClipboardText(): string {
   try {
     transferable.getTransferData('text/unicode', clipboardData, clipboardLength);
   } catch (err: any) {
-    window.console.error("Clipboard service read failed:", err.message);
+    Meet.debug("zotero:getClipboardText:error", { message: err?.message });
   }
   // @ts-ignore
   clipboardData = clipboardData.value.QueryInterface(Ci.nsISupportsString);
   // @ts-ignore
   return clipboardData.data
+}
+
+function pickCachedRelatedDocs(queryText: string, docs: Document[], relatedNumber: number) {
+  const terms = [...new Set((queryText.toLowerCase().match(/[a-z0-9]{2,}/g) || []))]
+  const ranked = docs
+    .map((doc) => {
+      const haystack = doc.pageContent.toLowerCase()
+      const score = terms.reduce((sum, term) => {
+        let matches = 0
+        let offset = haystack.indexOf(term)
+        while (offset >= 0) {
+          matches += 1
+          offset = haystack.indexOf(term, offset + term.length)
+        }
+        return sum + matches
+      }, 0)
+      return { doc, score }
+    })
+    .sort((a, b) => b.score - a.score || b.doc.pageContent.length - a.doc.pageContent.length)
+    .map((entry) => entry.doc)
+
+  const shortlisted = terms.length > 0
+    ? ranked.filter((doc) => {
+      const haystack = doc.pageContent.toLowerCase()
+      return terms.some((term) => haystack.includes(term))
+    })
+    : []
+
+  const source = shortlisted.length > 0 ? shortlisted : ranked
+  return source.slice(0, relatedNumber)
+}
+
+function isSummaryIntentQuery(queryText: string) {
+  return /\b(summari[sz]e|summary|overview|what(?:'s| is) this (?:paper|article|study|document) about|main idea|main contribution|takeaway|gist)\b/i.test(queryText)
+}
+
+function isLikelyBoilerplateText(text: string) {
+  const normalized = text.toLowerCase()
+  return [
+    "open access this article is licensed under a creative commons",
+    "creative commons attribution 4.0 international license",
+    "creative commons licence",
+    "creative commons license",
+    "to view a copy of this licence",
+    "to view a copy of this license",
+    "permission directly from the copyright holder",
+    "rights and permissions"
+  ].some((pattern) => normalized.includes(pattern))
+}
+
+function pickSummaryDocs(docs: Document[], relatedNumber: number) {
+  const filteredDocs = docs.filter((doc) => !isLikelyBoilerplateText(doc.pageContent))
+  const sourceDocs = filteredDocs.length > 0 ? filteredDocs : docs
+  const abstractIndex = sourceDocs.findIndex((doc) => /^\s*abstract\b/i.test(doc.pageContent))
+  const startIndex = abstractIndex >= 0 ? abstractIndex : 0
+  const windowSize = Math.max(relatedNumber * 3, 10)
+  return sourceDocs.slice(startIndex, startIndex + windowSize).slice(0, relatedNumber)
 }
 
 /**
@@ -181,8 +238,8 @@ async function pdf2documents(itemkey: string) {
   // const popupWin = new ztoolkit.ProgressWindow("[Pending] PDF", { closeTime: -1 })
   //   .createLine({ text: `[1/${totalPageNum}] Reading`, progress: 1, type: "success" })
   //   .show()
-  const popupWin = Meet.Global.popupWin.createLine({ text: `[1/${totalPageNum}] Reading PDF`, progress: 1, type: "success" })
-    .show()
+  const popupWin = Meet.progress({ text: `[1/${totalPageNum}] Reading PDF`, progress: 1, type: "success" })
+  popupWin?.show()
   // Read lines from all pages
   const pageLines: any = {}
   let docs: Document[] = []
@@ -196,14 +253,14 @@ async function pdf2documents(itemkey: string) {
       lines = lines.slice(0, index)
     }
     pageLines[pageNum] = lines
-    popupWin.changeLine({ idx: popupWin.lines.length - 1, text: `[${pageNum + 1}/${totalPageNum}] Reading PDF`, progress: (pageNum + 1) / totalPageNum * 100})
+    popupWin?.changeLine({ idx: popupWin.lines.length - 1, text: `[${pageNum + 1}/${totalPageNum}] Reading PDF`, progress: (pageNum + 1) / totalPageNum * 100})
     // Avoid cutting too aggressively
     if (index != -1 && pageNum / totalPageNum >= .9) {
       break
     }
   }
-  popupWin.changeLine({ idx: popupWin.lines.length - 1, text: "Reading PDF", progress: 100 })
-  popupWin.changeLine({ progress: 100 });
+  popupWin?.changeLine({ idx: popupWin.lines.length - 1, text: "Reading PDF", progress: 100 })
+  popupWin?.changeLine({ progress: 100 });
   totalPageNum = Object.keys(pageLines).length
   for (let pageNum = 0; pageNum < totalPageNum; pageNum++) {
     let pdfPage = pages[pageNum].pdfPage
@@ -358,8 +415,31 @@ async function pdf2documents(itemkey: string) {
   }
   // popupWin.changeHeadline("[Done] PDF")
   // popupWin.startCloseTimer(1000)
-  console.log("pdf2documents", docs)
+  Meet.debug("zotero:pdf2documents:done", {
+    itemkey,
+    docCount: docs.length
+  })
   return docs
+}
+
+export async function getFullPDFText() {
+  const pdfItem = getCurrentPDFItem()
+  if (!pdfItem?.isPDFAttachment?.()) {
+    Meet.debug("zotero:getFullPDFText:noOpenPDF", "")
+    return ""
+  }
+  // @ts-ignore
+  const cache = (window._GPTGlobal ??= {cache: []}).cache
+  const key = pdfItem.key
+  const docs = cache[key] || await pdf2documents(key)
+  cache[key] = docs
+  const text = docs.map((doc: Document) => doc.pageContent).join("\n\n")
+  Meet.debug("zotero:getFullPDFText:done", {
+    key,
+    docCount: docs.length,
+    textLength: text.length
+  })
+  return text
 }
 
 /**
@@ -368,30 +448,60 @@ async function pdf2documents(itemkey: string) {
  * @param queryText 
  * @returns 
  */
-export async function getRelatedText(queryText: string) {
+export async function getRelatedText(
+  queryText: string,
+  options: { insertAuxiliary?: boolean; cachedOnly?: boolean } = {}
+) {
+  const { insertAuxiliary = true, cachedOnly = false } = options
+  Meet.debug("zotero:getRelatedText:start", {
+    queryLength: queryText.length,
+    insertAuxiliary,
+    cachedOnly
+  })
   // @ts-ignore
   const cache = (window._GPTGlobal ??= {cache: []}).cache
   let docs: Document[], key: string
-  switch (Zotero_Tabs.selectedIndex) {
-    case 0:
-      // Reuse only when the same items are selected and unchanged.
-      // TODO: optimize
-      key = MD5(ZoteroPane.getSelectedItems().map(i => i.key).join("")).toString()
-      docs = cache[key] || await selectedItems2documents(key)
-      break;
-    default:
-      let pdfItem = Zotero.Items.get(
-        Zotero.Reader.getByTabID(Zotero_Tabs.selectedID)!.itemID as number
-      )
-      key = pdfItem.key
-      docs = cache[key] || await pdf2documents(key)
-      break
+
+  const pdfItem = getCurrentPDFItem()
+  if (pdfItem?.isPDFAttachment?.()) {
+    key = pdfItem.key
+    Meet.debug("zotero:getRelatedText:pdf", {
+      key,
+      hasCache: !!cache[key],
+      cachedOnly
+    })
+    if (cachedOnly && !cache[key]) {
+      Meet.debug("zotero:getRelatedText:pdf:cacheMiss", { key })
+      return ""
+    }
+    docs = cache[key] || await pdf2documents(key)
+  } else {
+    // Reuse only when the same items are selected and unchanged.
+    // TODO: optimize
+    key = MD5(ZoteroPane.getSelectedItems().map(i => i.key).join("")).toString()
+    docs = cache[key] || await selectedItems2documents(key)
   }
   cache[key] = docs
-  docs = await similaritySearch(queryText, docs, { key }) as Document[]
+  const relatedNumber = Zotero.Prefs.get(`${config.addonRef}.relatedNumber`) as number
+  const relatedDocs = cachedOnly
+    ? pickCachedRelatedDocs(queryText, docs, relatedNumber)
+    : (pdfItem?.isPDFAttachment?.() && isSummaryIntentQuery(queryText))
+      ? pickSummaryDocs(docs, relatedNumber)
+      : await similaritySearch(queryText, docs, { key }) as Document[]
+  docs = relatedDocs.length > 0
+    ? relatedDocs
+    : docs.sort((a, b) => b.pageContent.length - a.pageContent.length).slice(0, relatedNumber)
   ztoolkit.log("docs", docs)
-  Zotero[config.addonInstance].views.insertAuxiliary(docs)
-  return docs.map((doc: Document, index: number) => `[${index + 1}]${doc.pageContent}`).join("\n\n")
+  if (insertAuxiliary) {
+    Zotero[config.addonInstance].views.insertAuxiliary(docs)
+  }
+  const result = docs.map((doc: Document, index: number) => `[${index + 1}]${doc.pageContent}`).join("\n\n")
+  Meet.debug("zotero:getRelatedText:done", {
+    key,
+    docCount: docs.length,
+    resultLength: result.length
+  })
+  return result
 }
 
 /**
@@ -401,6 +511,20 @@ export async function getRelatedText(queryText: string) {
  */
 export function getItemField(fieldName: any) {
   return ZoteroPane.getSelectedItems()[0].getField(fieldName)
+}
+
+export function getCurrentPDFItem() {
+  try {
+    const reader = Zotero.Reader.getByTabID(Zotero_Tabs.selectedID)
+    if (reader?.itemID) {
+      return Zotero.Items.get(reader.itemID as number)
+    }
+  } catch {}
+  return null
+}
+
+export function hasOpenPDF() {
+  return !!getCurrentPDFItem()?.isPDFAttachment?.()
 }
 
 /**

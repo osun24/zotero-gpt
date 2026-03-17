@@ -11,7 +11,7 @@ const help = `
 \`/model gpt-4/gpt-3.5-turbo\` Set GPT model. For example, \`/model gpt-3.5-turbo\`.
 \`/temperature 1.0\` Set GPT temperature. Controls randomness within a range of 0 to 1.
 \`/chatNumber 3\` Set the number of saved historical conversations.
-\`/relatedNumber 5\` Set the number of related passages used by AskPDF-style prompts.
+\`/relatedNumber 5\` Set the number of related passages used by \`{{related_text}}\` and automatic PDF retrieval.
 \`/deltaTime 100\` Control GPT smoothness (ms).
 \`/width 32%\` Control GPT UI width (pct).
 \`/tagsMore expand/scroll\` Set mode to display more tags.
@@ -23,6 +23,7 @@ Tags are prompt templates with safe placeholders only. JavaScript in tags is not
 Supported placeholders:
 \`{{input}}\`
 \`{{pdf_selection}}\`
+\`{{full_pdf_text}}\`
 \`{{clipboard}}\`
 \`{{selected_item_json}}\`
 \`{{selected_item_field:abstractNote}}\`
@@ -32,10 +33,14 @@ Supported placeholders:
 
 ### About Output Text
 
-You can \`double click\` on this text to copy GPT's answer.
+You can select this text directly and copy GPT's answer with the normal system copy shortcut.
 You can \`long press\` me without releasing, then move me to a suitable position before releasing.
 
 ### About Input Text
+
+If a PDF selection is active, it is passed automatically.
+If a PDF is open, related context from that PDF is passed automatically.
+Use placeholders when you want explicit control over which context is inserted.
 
 You can exit me by pressing \`Esc\` above my head and wake me up by pressing \`Shift + /\` or \`Shift + ?\` in the Zotero main window.
 You can type the question in my header, then press \`Enter\` to ask me.
@@ -44,6 +49,7 @@ You can press \`Shift + Enter\` to enter long text editing mode and press \`Ctrl
 `
 
 const fontFamily = `Söhne,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif,Helvetica Neue,Arial,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji`
+const retiredDefaultTagNames = ["🌟Translate", "✨Improve writing"]
 
 function parseTag(text: string) {
   text = text.replace(/^\n/, "").replace(/\n$/, "")
@@ -82,31 +88,11 @@ let defaultTags: any = [
 #🪐AskPDF[color=#0EA293][position=10][trigger=/(paper|article|this paper)/i]
 You are a helpful assistant. Context information is below.
 
-{{related_text}}
+{{full_pdf_text}}
 
-Using the provided context information, write a comprehensive reply to the given query. Make sure to cite results using [number] notation after the reference. If the provided context information refer to multiple subjects with the same name, write separate answers for each subject. Use prior knowledge only if the given context didn't provide enough information.
+Using the provided context information, write a comprehensive reply to the given query. Use the full paper text as the primary source of truth. Use prior knowledge only if the paper text does not provide enough information.
 
 Answer the question: {{input}}
-`,
-`
-#🌟Translate[c=#D14D72][pos=11][trigger=/^translate/i]
-Translate the following content to Simplified Chinese:
-
-User input:
-{{input}}
-
-PDF selection:
-{{pdf_selection}}
-`,
-`
-#✨Improve writing[color=#8e44ad][pos=12][trigger=/^(improve|polish)/i]
-Below is text from an academic paper. Polish the writing to meet academic style, improve spelling, grammar, clarity, concision, and readability. When necessary, rewrite the sentence. List all modifications and explain the reasons in a markdown table.
-
-User input:
-{{input}}
-
-Selected text:
-{{pdf_selection}}
 `,
 `
 #Clipboard[c=#576CBC][pos=13][trigger=/(clipboard|copied content)/i]
@@ -158,4 +144,4 @@ My question is: {{input}}
 ]
 defaultTags = defaultTags.map(parseTag)
 
-export { help, fontFamily, defaultTags, parseTag }
+export { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames }
