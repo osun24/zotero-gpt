@@ -2,7 +2,7 @@ import { config } from "../../package.json";
 import Meet from "./Meet/api"
 import Utils from "./utils";
 import { Document } from "langchain/document";
-import { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames } from "./base"
+import { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames, renamedDefaultTagNames } from "./base"
 const markdown = require("markdown-it")({
   breaks: true, // Convert line breaks into <br> tags
   xhtmlOut: true, // Use /> closing style instead of >
@@ -25,7 +25,9 @@ export default class Views {
   public container!: HTMLDivElement;
   private inputContainer!: HTMLDivElement;
   private outputContainer!: HTMLDivElement;
-  private dotsContainer!: HTMLDivElement;
+  private emptyState!: HTMLDivElement;
+  private statusPill!: HTMLDivElement;
+  private dotsContainer!: HTMLElement;
   private tagsContainer!: HTMLDivElement;
   private resizeHandle!: HTMLDivElement;
   private utils: Utils;
@@ -162,6 +164,7 @@ export default class Views {
 
   /** Set the text shown in the GPT output area. */
   public setText(text: string, isDone: boolean = false, scrollToNewLine: boolean = true, isRecord: boolean = true,) {
+    this.setOutputState("content")
     this.outputContainer.style.display = ""
     const outputDiv = this.outputContainer.querySelector(".markdown-body")! as HTMLDivElement
     outputDiv.setAttribute("pureText", text);
@@ -242,7 +245,7 @@ export default class Views {
 
   private showError(title: string, message: string) {
     Meet.debug("views:showError", { title, message })
-    this.dotsContainer?.classList.remove("loading")
+    this.setStatus("error", title)
     this.setText(`## ${title}\n\n${message}`, true, false)
     new ztoolkit.ProgressWindow(title, { closeOtherProgressWindows: true })
       .createLine({ text: message, type: "default" })
@@ -343,6 +346,146 @@ export default class Views {
     }
   }
 
+  private parseRGBColor(color: string) {
+    const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+    if (rgbMatch) {
+      return rgbMatch.slice(1, 4).map(Number)
+    }
+    const hexMatch = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)
+    if (hexMatch) {
+      const hex = hexMatch[1]
+      const parts = hex.length == 3
+        ? hex.split("").map((part) => parseInt(part + part, 16))
+        : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((part) => parseInt(part, 16))
+      return parts
+    }
+    return null
+  }
+
+  private getThemeMode() {
+    const nodes = [document.body, document.documentElement, this.container].filter(Boolean) as HTMLElement[]
+    for (const node of nodes) {
+      const backgroundColor = window.getComputedStyle(node).backgroundColor
+      if (!backgroundColor || backgroundColor == "transparent" || backgroundColor == "rgba(0, 0, 0, 0)") {
+        continue
+      }
+      const rgb = this.parseRGBColor(backgroundColor)
+      if (!rgb) {
+        continue
+      }
+      const [r, g, b] = rgb
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+      return luminance < 140 ? "dark" : "light"
+    }
+    return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light"
+  }
+
+  private syncThemeMode() {
+    const theme = this.getThemeMode()
+    this.container?.setAttribute("data-theme", theme)
+  }
+
+  private getTagTrayCollapsed() {
+    const value = Zotero.Prefs.get(`${config.addonRef}.tagTrayCollapsed`) as string | boolean
+    return value === true || value === "true"
+  }
+
+  private setTagTrayCollapsed(collapsed: boolean) {
+    Zotero.Prefs.set(`${config.addonRef}.tagTrayCollapsed`, collapsed ? "true" : "false")
+    this.syncTagTrayCollapsed()
+  }
+
+  private syncTagTrayCollapsed() {
+    const collapsed = this.getTagTrayCollapsed()
+    this.container?.setAttribute("data-tag-tray-collapsed", collapsed ? "true" : "false")
+    if (this.tagsContainer) {
+      this.tagsContainer.style.display = collapsed ? "none" : "flex"
+    }
+    if (this.dotsContainer) {
+      this.dotsContainer.textContent = collapsed ? "Show Tags" : "Hide Tags"
+      this.dotsContainer.setAttribute("aria-expanded", collapsed ? "false" : "true")
+    }
+    if (!collapsed) {
+      this.syncTagTrayAlignment()
+    }
+  }
+
+  private syncTagTrayAlignment() {
+    if (!this.tagsContainer) {
+      return
+    }
+    window.setTimeout(() => {
+      const shouldCenter = this.tagsContainer.scrollWidth <= this.tagsContainer.clientWidth + 4
+      this.tagsContainer.style.justifyContent = shouldCenter ? "center" : "flex-start"
+    }, 0)
+  }
+
+  private setStatus(state: "idle" | "loading" | "success" | "error", label?: string) {
+    if (!this.container || !this.statusPill) {
+      return
+    }
+    const defaultLabels = {
+      idle: "Ready",
+      loading: "Working",
+      success: "Ready",
+      error: "Needs Attention",
+    }
+    const text = label || defaultLabels[state]
+    this.container.setAttribute("data-status", state)
+    this.statusPill.setAttribute("data-state", state)
+    this.statusPill.replaceChildren()
+    if (state == "loading") {
+      const spinner = document.createElement("span")
+      spinner.className = "gpt-status-spinner"
+      this.statusPill.append(spinner)
+    } else {
+      const indicator = document.createElement("span")
+      indicator.className = "gpt-status-dot"
+      this.statusPill.append(indicator)
+    }
+    const textNode = document.createElement("span")
+    textNode.className = "gpt-status-text"
+    textNode.textContent = text
+    this.statusPill.append(textNode)
+  }
+
+  private setOutputState(
+    state: "empty" | "loading" | "content",
+    options: { title?: string; message?: string } = {}
+  ) {
+    if (!this.outputContainer || !this.emptyState) {
+      return
+    }
+    this.outputContainer.setAttribute("data-view", state)
+    if (state == "content") {
+      this.emptyState.style.display = "none"
+      const markdownBody = this.outputContainer.querySelector(".markdown-body") as HTMLDivElement
+      markdownBody.style.display = ""
+      return
+    }
+    const title = options.title || (state == "loading" ? "Generating response" : "Ask ZoteroGPT")
+    const message = options.message || (
+      state == "loading"
+        ? "Preparing context and waiting for the model."
+        : "Ask about a selected item, open PDF, or saved tag."
+    )
+    this.outputContainer.style.display = ""
+    this.emptyState.style.display = ""
+    this.emptyState.setAttribute("data-state", state)
+    this.emptyState.innerHTML = `
+      <div class="gpt-empty-eyebrow">${state == "loading" ? "Working" : "Ready"}</div>
+      <div class="gpt-empty-title">${title}</div>
+      <div class="gpt-empty-copy">${message}</div>
+    `
+    const markdownBody = this.outputContainer.querySelector(".markdown-body") as HTMLDivElement
+    markdownBody.style.display = "none"
+  }
+
+  private closeWindow() {
+    this.hide()
+    this.container?.remove()
+  }
+
   private getStoredContainerSize() {
     const width = Zotero.Prefs.get(`${config.addonRef}.windowWidth`) as string
     const height = Zotero.Prefs.get(`${config.addonRef}.windowHeight`) as string
@@ -374,6 +517,7 @@ export default class Views {
     const clamped = this.clampContainerSize(width, height, left, top)
     this.container.style.width = `${Math.round(clamped.width)}px`
     this.container.style.height = `${Math.round(clamped.height)}px`
+    this.syncTagTrayAlignment()
   }
 
   private parseTrigger(trigger: string) {
@@ -556,14 +700,28 @@ export default class Views {
       this.logDebug("getTags:removeRetiredDefaultTag", { tag: tag.tag })
       return false
     })
-    const normalizedTags = activeTags.map((tag) => {
+    const normalizedTags = activeTags.map((originalTag) => {
+      const renamedTagName = renamedDefaultTagNames[originalTag.tag] || originalTag.tag
+      let tag = originalTag
+      if (renamedTagName != originalTag.tag) {
+        changed = true
+        tag = { ...originalTag, tag: renamedTagName }
+        this.logDebug("getTags:renameDefaultTag", {
+          from: originalTag.tag,
+          to: renamedTagName
+        })
+      }
       const defaultTag = defaultTags.find((candidate: Tag) => candidate.tag == tag.tag)
       if (!defaultTag) {
         return tag
       }
       const shouldMigrateLegacyText = this.isLegacyTagText(tag.text || "")
       const shouldRestoreTrigger = !tag.trigger?.length && !!defaultTag.trigger?.length
-      const shouldSyncDefaultText = tag.tag == "🪐AskPDF" && tag.text != this.rebuildDefaultTag(defaultTag, tag).text
+      const shouldSyncDefaultText =
+        tag.tag == "🪐AskPDF" ||
+        renamedTagName != originalTag.tag
+          ? tag.text != this.rebuildDefaultTag(defaultTag, tag).text
+          : false
       if (!shouldMigrateLegacyText && !shouldRestoreTrigger && !shouldSyncDefaultText) {
         return tag
       }
@@ -577,13 +735,24 @@ export default class Views {
       })
       return migratedTag
     })
+    const dedupedTags: Tag[] = []
+    const seenTags = new Set<string>()
+    normalizedTags.forEach((tag) => {
+      if (seenTags.has(tag.tag)) {
+        changed = true
+        this.logDebug("getTags:dedupeDefaultTag", { tag: tag.tag })
+        return
+      }
+      seenTags.add(tag.tag)
+      dedupedTags.push(tag)
+    })
     for (let defaultTag of defaultTags) {
-      if (!normalizedTags.find((tag: Tag) => tag.tag == defaultTag.tag)) {
-        normalizedTags.push(defaultTag)
+      if (!dedupedTags.find((tag: Tag) => tag.tag == defaultTag.tag)) {
+        dedupedTags.push(defaultTag)
         changed = true
       }
     }
-    return { tags: normalizedTags, changed }
+    return { tags: dedupedTags, changed }
   }
 
   /**
@@ -600,6 +769,7 @@ export default class Views {
       if (
         event.target instanceof window.HTMLInputElement ||
         event.target instanceof window.HTMLTextAreaElement ||
+        target.closest("[data-no-drag=true]") ||
         (event.target as HTMLDivElement).classList.contains("tag") ||
         target.closest("#output-container")
       ) {
@@ -797,6 +967,7 @@ export default class Views {
     // Root container
     const container = ztoolkit.UI.createElement(document, "div", {
       id: this.id,
+      classList: ["gpt-shell"],
       styles: {
         display: "none",
         flexDirection: "column",
@@ -809,24 +980,76 @@ export default class Views {
         minHeight: "180px",
         maxWidth: "calc(100vw - 8px)",
         maxHeight: "calc(100vh - 8px)",
-        fontSize: "18px",
-        borderRadius: "10px",
-        backgroundColor: "#fff",
-        boxShadow: `0px 1.8px 7.3px rgba(0, 0, 0, 0.071),
-                    0px 6.3px 24.7px rgba(0, 0, 0, 0.112),
-                    0px 30px 90px rgba(0, 0, 0, 0.2)`,
+        fontSize: "16px",
         fontFamily: fontFamily,
         overflow: "hidden",
       }
     })
     this.addDragEvent(container)
     this.bindCtrlScrollZoom(container)
+    ztoolkit.UI.appendElement({
+      tag: "div",
+      classList: ["gpt-header"],
+      children: [
+        {
+          tag: "div",
+          classList: ["gpt-title-wrap"],
+          children: [
+            {
+              tag: "div",
+              classList: ["gpt-title"],
+              properties: {
+                innerText: "ZoteroGPT"
+              }
+            },
+            {
+              tag: "div",
+              classList: ["gpt-subtitle"],
+              properties: {
+                innerText: "Ask items, PDFs, and saved tags"
+              }
+            }
+          ]
+        },
+        {
+          tag: "div",
+          classList: ["gpt-header-actions"],
+          children: [
+            {
+              tag: "div",
+              classList: ["gpt-status-pill"],
+              listeners: [],
+            },
+            {
+              tag: "button",
+              classList: ["gpt-icon-button"],
+              properties: {
+                innerText: "\u00D7",
+                title: "Close"
+              },
+              styles: {
+                appearance: "none",
+                border: "none",
+                background: "transparent"
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => this.closeWindow()
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }, container)
+    this.statusPill = container.querySelector(".gpt-status-pill") as HTMLDivElement
     // Input area
     const inputContainer = this.inputContainer = ztoolkit.UI.appendElement({
       tag: "div",
       id: "input-container",
+      classList: ["gpt-composer"],
       styles: {
-        borderBottom: "1px solid #f6f6f6",
         width: "100%",
         display: "flex",
         justifyContent: "center",
@@ -836,31 +1059,38 @@ export default class Views {
       children: [
         {
           tag: "input",
+          classList: ["gpt-text-input"],
           styles: {
-            width: "calc(100% - 1.5em)",
-            height: "2.5em",
-            borderRadius: "10px",
+            width: "calc(100% - 2em)",
+            height: "2.75em",
             border: "none",
             outline: "none",
-            fontFamily: "Consolas",
+            background: "transparent",
             fontSize: ".8em",
+          }
+          ,
+          properties: {
+            placeholder: "Ask about the current item, selection, or open PDF"
           }
         },
         {
           tag: "textarea",
+          classList: ["gpt-textarea"],
           styles: {
             display: "none",
-            width: "calc(100% - 1.5em)",
+            width: "calc(100% - 2em)",
             maxHeight: "20em",
-            minHeight: "2em",
-            borderRadius: "10px",
+            minHeight: "3.5em",
             border: "none",
             outline: "none",
             resize: "vertical",
-            marginTop: "0.55em",
-            fontFamily: "Consolas",
+            marginTop: "0.4em",
+            background: "transparent",
             fontSize: ".8em"
 
+          },
+          properties: {
+            placeholder: "Write a longer prompt or tag template here"
           }
         }
       ]
@@ -961,7 +1191,11 @@ export default class Views {
             that.messages = []
             // @ts-ignore
             this.value = ""
-            that.setText("success", true, false)
+            that.setStatus("idle")
+            that.setOutputState("empty", {
+              title: "Conversation cleared",
+              message: "Ask another question about a selected item, open PDF, or saved tag."
+            })
           } else if (key == "help"){ 
             that.setText(help, true, false)
           } else if (key == "report") { 
@@ -1062,30 +1296,28 @@ export default class Views {
     const outputContainer = this.outputContainer = ztoolkit.UI.appendElement({
       tag: "div",
       id: "output-container",
+      classList: ["gpt-response-panel"],
       styles: {
-        width: "calc(100% - 1em)",
-        backgroundColor: "rgba(89, 192, 188, .08)",
-        color: "#374151",
+        width: "calc(100% - 1.5em)",
         flex: "1 1 auto",
-        minHeight: "4em",
+        minHeight: "8em",
         overflowY: "auto",
         overflowX: "hidden",
-        padding: "0.25em 0.5em",
-        display: "none",
-        // resize: "vertical"
+        padding: "0.6em 0.8em",
       },
       children: [
         {
-          tag: "div", // Change this to 'div'
+          tag: "div",
+          classList: ["gpt-empty-state"]
+        },
+        {
+          tag: "div",
           classList: ["markdown-body"],
           styles: {
             fontSize: "0.8em",
-            lineHeight: "2em",
             userSelect: "text",
-            // margin: ".5em 0"
           },
           properties: {
-            // Used for copying plain text
             pureText: ""
           }
         }
@@ -1108,21 +1340,81 @@ export default class Views {
         })
       }
     })
+    this.emptyState = outputContainer.querySelector(".gpt-empty-state") as HTMLDivElement
     // Command tags
     const tagsMore = Zotero.Prefs.get(`${config.addonRef}.tagsMore`) as string
+    const tagTray = ztoolkit.UI.appendElement({
+      tag: "div",
+      classList: ["gpt-tag-tray"],
+      styles: {
+        width: "100%",
+      },
+      children: [
+        {
+          tag: "div",
+          classList: ["gpt-tag-tray-header"],
+          children: [
+            {
+              tag: "div",
+              classList: ["gpt-tag-tray-copy"],
+              children: [
+                {
+                  tag: "div",
+                  classList: ["gpt-tag-tray-title"],
+                  properties: {
+                    innerText: "Command Tags"
+                  }
+                },
+                {
+                  tag: "div",
+                  classList: ["gpt-tag-tray-subtitle"],
+                  properties: {
+                    innerText: "Click to run. Hold to edit. Right-click to remove."
+                  }
+                }
+              ]
+            },
+            {
+              tag: "button",
+              classList: ["gpt-tag-toggle"],
+              properties: {
+                type: "button",
+                innerText: "Hide Tags"
+              },
+              styles: {
+                appearance: "none",
+                border: "none",
+                background: "transparent"
+              },
+              listeners: [
+                {
+                  type: "click",
+                  listener: () => this.setTagTrayCollapsed(!this.getTagTrayCollapsed())
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }, container) as HTMLDivElement
+    this.dotsContainer = tagTray.querySelector(".gpt-tag-toggle") as HTMLDivElement
+    this.dotsContainer.setAttribute("data-no-drag", "true")
+    const closeButton = container.querySelector(".gpt-icon-button") as HTMLButtonElement
+    closeButton.setAttribute("data-no-drag", "true")
+    closeButton.setAttribute("aria-label", "Close ZoteroGPT")
     const tagsContainer = this.tagsContainer = ztoolkit.UI.appendElement({
       tag: "div",
       classList: ["tags-container"],
       styles: {
-        width: "calc(100% - .5em)",
+        width: "calc(100% - 1.5em)",
         display: "flex",
         flexDirection: "row",
-        justifyContent: "flex-start",
+        justifyContent: "center",
         alignItems: "center",
-        margin: ".25em 0",
+        margin: ".15em auto .55em",
         flexWrap: tagsMore == "expand" ? "wrap" : "nowrap",
         overflow: "hidden",
-        height: "1.7em"
+        height: "auto",
       },
       listeners: [
         {
@@ -1141,48 +1433,7 @@ export default class Views {
           }
         }
       ]
-    }, container) as HTMLDivElement
-    this.dotsContainer = ztoolkit.UI.appendElement({
-      tag: "div",
-      classList: ["three-dots"],
-      styles: {
-        // width: "100%",
-        display: "flex",
-        height: "1em",
-        justifyContent: "center",
-        alignItems: "center",
-        marginBottom: "0.25em",
-        cursor: "pointer",
-        opacity: ".5",
-        transition: "opacity .25s linear"
-      },
-      children: (() => {
-          let arr = []
-          for (let i = 0; i < 3; i++) {
-            arr.push({
-              tag: "div",
-              classList: ["dot"],
-              styles: {
-                width: "6px",
-                height: "6px",
-                margin: "0 .25em",
-                backgroundColor: "#ff7675",
-                borderRadius: "6px",
-              },
-            })
-          }
-          return arr
-        })() as any,
-      listeners: [
-        {
-          type: "click",
-          listener: () => {
-            if (tagsMore == "scroll") { return }
-            tagsContainer.style.height = tagsContainer.style.height == "auto" ? "1.7em" : "auto"
-          }
-        }
-      ]
-    }, container) as HTMLDivElement
+    }, tagTray) as HTMLDivElement
     this.resizeHandle = ztoolkit.UI.appendElement({
       tag: "div",
       classList: ["resize-handle"],
@@ -1193,6 +1444,10 @@ export default class Views {
     this.addResizeEvent(container, this.resizeHandle)
     document.documentElement.append(container)
     this.renderTags()
+    this.syncThemeMode()
+    this.syncTagTrayCollapsed()
+    this.setStatus("idle")
+    this.setOutputState("empty")
     // Focus
     window.setTimeout(() => {
       container.focus()
@@ -1211,6 +1466,7 @@ export default class Views {
     tags.forEach((tag: Tag, index: number) => {
       this.addTag(tag, index)
     })
+    this.syncTagTrayAlignment()
   }
 
   /**
@@ -1222,20 +1478,22 @@ export default class Views {
     ztoolkit.UI.appendElement({
       tag: "div",
       id: `tag-${index}`,
-      classList: ["tag"],
+      classList: ["tag", "gpt-tag-chip"],
       styles: {
-        display: "inline-block",
+        display: "inline-flex",
         flexShrink: "0",
         fontSize: "0.8em",
-        height: "1.5em",
+        minHeight: "2em",
         color: `rgba(${red}, ${green}, ${blue}, 1)`,
-        backgroundColor: `rgba(${red}, ${green}, ${blue}, 0.15)`,
-        borderRadius: "1em",
-        border: "1px solid #fff",
-        margin: ".25em",
-        padding: "0 .8em",
+        backgroundColor: `rgba(${red}, ${green}, ${blue}, 0.12)`,
+        borderRadius: "999px",
+        border: `1px solid rgba(${red}, ${green}, ${blue}, 0.16)`,
+        margin: ".16em .18em",
+        padding: "0 .9em",
         cursor: "pointer",
-        whiteSpace: "nowrap"
+        whiteSpace: "nowrap",
+        alignItems: "center",
+        transition: "transform .15s ease, box-shadow .18s ease, background-color .18s ease",
       },
       properties: {
         innerHTML: tag.tag
@@ -1307,15 +1565,18 @@ export default class Views {
     })
     Meet.Global.popupWin = popunWin
     this.safePopupLine(popunWin, "execTag:popup", { text: "Generating input content...", type: "default" })
-    this.dotsContainer?.classList.add("loading")
-    this.outputContainer.style.display = "none"
+    this.setStatus("loading", "Preparing tag")
+    this.setOutputState("loading", {
+      title: `Running ${tag.tag}`,
+      message: "Resolving placeholders and preparing the request."
+    })
     ztoolkit.log(tag, this.getTags())
     const tagIndex = this.getTags().map(JSON.stringify).indexOf(JSON.stringify(tag)) as number
     this.rippleEffect(
       this.container.querySelector(`#tag-${tagIndex}`)!,
       tag.color
     )
-    const outputDiv = this.outputContainer.querySelector("div")!
+    const outputDiv = this.outputContainer.querySelector(".markdown-body") as HTMLDivElement
     outputDiv.innerHTML = ""
     outputDiv.setAttribute("pureText", "");
     let text = tag.text.replace(/^#.+\n/, "")
@@ -1338,8 +1599,10 @@ export default class Views {
       this.logDebug("execTag:getGPTResponse:done", { textLength: text.length })
       if (text.trim().length) {
         this.safePopupLine(popunWin, "execTag:popup", { text: "Done", type: "success" })
+        this.setStatus("success", "Answer ready")
       } else {
         this.safePopupLine(popunWin, "execTag:popup", { text: "Done", type: "fail" })
+        this.setStatus("error", "Empty response")
       }
     } catch (error: any) {
       const message = error?.message || "The request did not complete."
@@ -1347,7 +1610,6 @@ export default class Views {
       this.showError("Request Error", message)
     } finally {
       this.logDebug("execTag:finally", "")
-      this.dotsContainer?.classList.remove("loading")
       this.safeStartCloseTimer(popunWin, "execTag:popup", 3000)
       Meet.Global.popupWin = previousPopupWin
     }
@@ -1377,12 +1639,15 @@ export default class Views {
     if (tag) { return this.execTag(tag) }
 
     // Otherwise execute the input as plain text
-    this.outputContainer.style.display = "none"
-    const outputDiv = this.outputContainer.querySelector("div")!
+    if (text.trim().length == 0) { return }
+    this.setOutputState("loading", {
+      title: "Generating response",
+      message: "Preparing context from Zotero and waiting for the model."
+    })
+    const outputDiv = this.outputContainer.querySelector(".markdown-body") as HTMLDivElement
     outputDiv.innerHTML = ""
     outputDiv.setAttribute("pureText", "");
-    if (text.trim().length == 0) { return }
-    this.dotsContainer?.classList.add("loading")
+    this.setStatus("loading", "Preparing request")
     const placeholderNames = this.getPlaceholderMatches(text).map(match => match[1])
     const hasSupportedPlaceholders = placeholderNames
       .some(name => this.isSupportedPlaceholder(name))
@@ -1421,13 +1686,13 @@ export default class Views {
       text = await Meet.OpenAI.getGPTResponse(text)
       this.logDebug("execText:getGPTResponse:done", { textLength: text.length })
       this.safePopupLine(popupWin, "execText:popup", { text: "Done", type: text.trim().length ? "success" : "fail" })
+      this.setStatus(text.trim().length ? "success" : "error", text.trim().length ? "Answer ready" : "Empty response")
     } catch (error: any) {
       const message = error?.message || "The request did not complete."
       this.safePopupLine(popupWin, "execText:popup", { text: message, type: "fail" })
       this.showError("Request Error", message)
     } finally {
       this.logDebug("execText:finally", "")
-      this.dotsContainer?.classList.remove("loading")
       this.safeStartCloseTimer(popupWin, "execText:popup", 3000)
       Meet.Global.popupWin = previousPopupWin
     }
@@ -1469,6 +1734,8 @@ export default class Views {
       this.container = this.buildContainer()
       this.container.style.display = "flex"
     }
+    this.syncThemeMode()
+    this.syncTagTrayCollapsed()
     this.container.setAttribute("follow", "")
     if (x + y < 0) {
       const rect = document.documentElement.getBoundingClientRect()
@@ -1485,6 +1752,7 @@ export default class Views {
    */
   public hide() {
     this.container.style.display = "none"
+    this.setStatus("idle")
     ztoolkit.log(this._ids)
     this._ids.map(id=>id.id).forEach(window.clearInterval)
   }
@@ -1507,23 +1775,26 @@ export default class Views {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        flexWrap: "wrap",
+        gap: "0.35em",
+        marginTop: "0.35em",
       }
     }, this.outputContainer)
     docs.forEach((doc: Document, index: number) => {
       ztoolkit.UI.appendElement({
         namespace: "html",
         tag: "a",
+        classList: ["gpt-aux-link"],
         styles: {
-          margin: ".3em",
           fontSize: "0.8em",
           cursor: "pointer",
-          borderRadius: "3px",
-          backgroundColor: "rgba(89, 192, 188, .43)",
-          width: "1.5em",
-          height: "1.5em",
+          width: "1.9em",
+          height: "1.9em",
           textAlign: "center",
-          color: "white",
-          fontWeight: "bold"
+          fontWeight: "bold",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
         },
         properties: {
           innerText: index + 1
@@ -1560,6 +1831,8 @@ export default class Views {
     items: { name: string, listener: Function }[],
     separators: number[]
   ) {
+    const theme = this.getThemeMode();
+    const isDark = theme == "dark";
     (document.querySelector(".gpt-menu-box") as HTMLDivElement | null)?.remove()
     const removeNode = () => {
       document.removeEventListener("mousedown", removeNode)
@@ -1583,12 +1856,15 @@ export default class Views {
         justifyContent: "space-around",
         flexDirection: "column",
         padding: "6px",
-        border: "1px solid #d4d4d4",
-        backgroundColor: "#ffffff",
-        borderRadius: "8px",
-        boxShadow: `0px 1px 2px rgba(0, 0, 0, 0.028),
-                                0px 3.4px 6.7px rgba(0, 0, 0, .042),
-                                0px 15px 30px rgba(0, 0, 0, .07)`,
+        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(15, 23, 42, 0.08)",
+        backgroundColor: isDark ? "#1f2631" : "#f8fafc",
+        color: isDark ? "#e5edf7" : "#122033",
+        borderRadius: "12px",
+        boxShadow: isDark
+          ? `0px 1px 2px rgba(0, 0, 0, 0.35),
+             0px 8px 24px rgba(0, 0, 0, 0.28)`
+          : `0px 1px 2px rgba(15, 23, 42, 0.05),
+             0px 12px 32px rgba(15, 23, 42, 0.12)`,
         overflow: "hidden",
         userSelect: "none",
       },
@@ -1598,16 +1874,16 @@ export default class Views {
           arr.push({
             tag: "div",
             classList: ["menu-item"],
-            styles: {
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "4px 8px",
-              cursor: "default",
-              fontSize: "13px",
-              borderRadius: "4px",
-              whiteSpace: "nowrap",
-            },
+              styles: {
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "7px 10px",
+                cursor: "default",
+                fontSize: "13px",
+                borderRadius: "8px",
+                whiteSpace: "nowrap",
+              },
             listeners: [
               {
                 type: "mousedown",
@@ -1644,8 +1920,8 @@ export default class Views {
               styles: {
                 height: "0",
                 margin: "6px -6px",
-                borderTop: ".5px solid #e0e0e0",
-                borderBottom: ".5px solid #e0e0e0",
+                borderTop: isDark ? ".5px solid rgba(255,255,255,0.08)" : ".5px solid rgba(15, 23, 42, 0.08)",
+                borderBottom: isDark ? ".5px solid rgba(255,255,255,0.08)" : ".5px solid rgba(15, 23, 42, 0.08)",
               }
             })
           }
@@ -1657,6 +1933,7 @@ export default class Views {
     
     const winRect = document.documentElement.getBoundingClientRect()
     const nodeRect = menuNode.getBoundingClientRect()
+    menuNode.setAttribute("data-theme", theme)
     // Avoid overflow
     if (nodeRect.bottom > winRect.bottom) {
       menuNode.style.top = ""

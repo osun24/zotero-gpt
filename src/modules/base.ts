@@ -49,7 +49,11 @@ You can press \`Shift + Enter\` to enter long text editing mode and press \`Ctrl
 `
 
 const fontFamily = `Söhne,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif,Helvetica Neue,Arial,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji`
-const retiredDefaultTagNames = ["🌟Translate", "✨Improve writing"]
+const retiredDefaultTagNames = ["🌟Translate", "✨Improve writing", "Clipboard"]
+const renamedDefaultTagNames: Record<string, string> = {
+  "Item": "Item Metadata",
+  "Items": "Related Context",
+}
 
 function parseTag(text: string) {
   text = text.replace(/^\n/, "").replace(/\n$/, "")
@@ -95,15 +99,6 @@ Using the provided context information, write a comprehensive reply to the given
 Answer the question: {{input}}
 `,
 `
-#Clipboard[c=#576CBC][pos=13][trigger=/(clipboard|copied content)/i]
-This is the content in my clipboard:
-
-{{clipboard}}
-
-My request:
-{{input}}
-`,
-`
 #Annotations[c=#F49D1A][pos=14][trigger=/(selected )?(annotations?|highlights?)/i]
 Selected PDF annotations:
 
@@ -125,16 +120,16 @@ Read these contents:
 Answer me in the language of my question. This is my question: {{input}}
 `,
 `
-#Item[c=#159895][pos=16][trigger=/(this paper|this article|this item)/i]
-This is a Zotero item presented in JSON format:
+#Item Metadata[c=#159895][pos=16][trigger=/(this paper|this article|this item)/i]
+This is the selected Zotero item presented in JSON format:
 
 {{selected_item_json}}
 
-Based on this item, answer: {{input}}
+Based on this selected item metadata, answer: {{input}}
 `,
 `
-#Items[c=#159895][pos=17][trigger=/(these papers|these articles|these items)/i]
-These are Zotero items related to the current question:
+#Related Context[c=#159895][pos=17][trigger=/(these papers|these articles|these items|related context)/i]
+This is context related to the current question:
 
 {{related_text}}
 
@@ -144,4 +139,4 @@ My question is: {{input}}
 ]
 defaultTags = defaultTags.map(parseTag)
 
-export { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames }
+export { help, fontFamily, defaultTags, parseTag, retiredDefaultTagNames, renamedDefaultTagNames }
